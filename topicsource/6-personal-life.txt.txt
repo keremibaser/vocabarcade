@@ -1,0 +1,69 @@
+brilliant: çok zeki, harika
+caring: ilgili, düşünceli
+clever: zeki
+energetic: enerjik
+focused: odaklanmış
+friendly: arkadaş canlısı
+funny: komik
+great: harika
+helpful: yardımsever
+independent: bağımsız
+kind: nazik, iyi kalpli
+organised: planlı, düzenli
+patient: sabırlı
+polite: kibar
+social: sosyal
+tidy: düzenli
+lazy: tembel
+rude: kaba
+serious: ciddi
+weak: zayıf
+attractive: çekici
+beautiful: güzel
+cute: sevimli
+handsome: yakışıklı
+pretty: hoş, güzel
+old: yaşlı
+young: genç
+ankle: ayak bileği
+back: sırt
+eye: göz
+hair: saç
+heart: kalp
+knee: diz
+leg: bacak
+neck: boyun
+skin: deri, ten
+boot: çizme
+coat: kaban
+jacket: ceket
+jeans: kot pantolon
+pants: pantolon
+pocket: cep
+shirt: gömlek
+shoes: ayakkabı
+skirt: etek
+tights: tayt
+trainers: spor ayakkabı
+fat: tombul
+short: kısa boylu
+slim: zayıf, ince
+strong: güçlü
+tall: uzun boylu
+thin: zayıf
+weak: güçsüz
+curly: kıvırcık
+straight: düz
+wavy: dalgalı
+long: uzun
+short: kısa
+blonde: sarı
+fair: açık renkli
+backpack: sırt çantası
+bracelet: bileklik
+chain: zincir
+hat: şapka
+jewellery: mücevher, takı
+necklace: kolye
+purse: cüzdan
+wallet: cüzdan

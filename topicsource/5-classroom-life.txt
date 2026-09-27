@@ -1,0 +1,86 @@
+after school activities: okul sonrası etkinlikler
+afternoon: öğleden sonra
+age: yaş
+art: resim
+ask: sormak
+basketball tournament: basketbol turnuvası
+big: büyük
+board marker: tahta kalemi
+bookshelf: kitaplık
+classroom life: sınıf hayatı
+classroom objects: sınıf eşyaları
+classroom rules: sınıf kuralları
+clean: temizlemek
+clear: temiz
+crayons: boya kalemleri
+days: günler
+dictionary: sözlük
+dirty: kirli
+drama: drama
+elective lessons: seçmeli dersler
+English: İngilizce
+erase: silmek
+every: her
+foreign language: yabancı dil
+good at: bir konuda iyi olmak
+half: yarım
+homework: ödev
+how many: kaç tane
+IT (Information Technology): bilişim teknolojileri
+learn:  öğrenmek
+lend: ödünç vermek
+lesson: ders
+look up: sözlükte aramak
+maths: matematik
+mistake: hata
+Monday: pazartesi
+morning: sabah
+music: müzik
+need: ihtiyaç duymak
+noisy: gürültülü
+numbers: sayılar
+P.E (physical education): beden eğitimi
+pencil case: kalemlik
+pencil: kurşun kalem
+poster: afiş
+project: proje
+put: koymak
+quiet: sessiz
+Religion and Morals: Din Kültürü ve Ahlak Bilgisi
+remind: hatırlatmak
+rubber: silgi
+rubbish bin: çöp kovası
+run in the classroom: sınıfta koşmak
+Saturday: cumartesi
+school bag: okul çantası
+school clubs: okul kulüpleri
+school subject: okul dersi
+science: fen bilimleri
+seat: sandalye
+share: paylaşmak
+sheet: kağıt
+show: göstermek
+small: küçük
+smart board: akıllı tahta
+social studies: sosyal bilgiler
+start: başlamak
+students: öğrenciler
+Sunday: pazar
+teacher: öğretmen
+throw rubbish: çöp atmak
+throw: atmak
+Thursday: perşembe
+time: saat
+timetable: ders programı
+Tuesday: salı
+Turkish: Türkçe
+use: kullanmak
+warn: uyarmak
+Wednesday: çarşamba
+week: hafta
+weekdays: hafta içi
+weekend: hafta sonu
+what time: saat kaç
+where: nerede
+which: hangisi
+write: yazmak

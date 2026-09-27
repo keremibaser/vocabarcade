@@ -1,0 +1,118 @@
+a picnic at the beach: sahilde piknik
+activity: aktivite
+air: hava
+always: her zaman
+any time: her zaman
+art museum: sanat müzesi
+aunt: teyze, hala
+be bad at: bir konuda kötü olmak
+be fond of: düşkün olmak
+be good at: bir konuda iyi olmak
+be interested in: ilgili olmak
+beach: plaj
+birthday party: doğum günü partisi
+bring: getirmek
+brother: erkek kardeş
+brush teeth: diş fırçalamak
+camping in the forest: ormanda kamp yapmak
+camping: kamp yapmak
+car: araba
+children: çocuklar
+classmate: sınıf arkadaşı
+computer: bilgisayar
+couple: çift
+cycling: bisiklete binmek
+dancing: dans etmek
+day: gün
+different: farklı
+eat: yemek
+especially: özellikle
+every day: her gün
+everything: her şey
+fair: fuar
+family life: aile hayatı
+family members: aile üyeleri
+family: aile
+father: baba
+festival: festival
+fold: katlamak
+food: yiyecek
+free time: boş zaman
+Friday: cuma
+friend: arkadaş
+garden: bahçe
+go: gitmek
+grandfather: büyükbaba
+grandmother: büyükanne
+great: harika
+have breakfast: kahvaltı yapmak
+have dinner: akşam yemeği yemek
+have lunch: öğle yemeği yemek
+having a barbecue: mangal yapmak
+hobby: hobi
+indoor: kapalı alan
+job: meslek
+jump: zıplamak
+kitchen: mutfak
+lake: göl
+library: kütüphane
+making a birthday cake: doğum günü pastası yapmak
+mine: benimki
+Monday: pazartesi
+mother: anne
+my: benim
+nature: doğa
+now: şimdi
+ocean: okyanus
+open: açmak
+organise: düzenlemek
+outdoor: açık alan
+pan: tava
+people: insanlar
+picnic: piknik
+place: yer
+play football: futbol oynamak
+playing a board game: masa oyunu oynamak
+playing the guitar: gitar çalmak
+problem: problem
+public transport: toplu taşıma
+read: okumak
+rest: dinlenmek
+routine: rutin
+Saturday: cumartesi
+school: okul
+seat: oturmak
+second: ikinci
+sheep: koyun
+sister: kız kardeş
+social life: sosyal hayat
+stamp: pul
+story: hikâye
+strong: güçlü
+suggest: önermek
+Sunday: pazar
+swimming: yüzme
+taking care of a pet: evcil hayvana bakmak
+taking photograph: fotoğraf çekmek
+talk: konuşmak
+teddy bear: oyuncak ayı
+tent: çadır
+Thursday: perşembe
+tidy up: toplamak
+tidying up the tent: çadırı toplamak
+today: bugün
+together: birlikte
+tree: ağaç
+trekking: doğa yürüyüşü
+trip: gezi
+Tuesday: salı
+uncle: amca, dayı
+usually: genellikle
+visiting a museum: müze gezmek
+walk: yürümek
+wash: yıkamak
+watch: izlemek
+Wednesday: çarşamba
+weekday: hafta içi
+weekend: hafta sonu
+win: kazanmak

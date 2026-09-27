@@ -1,0 +1,114 @@
+air pollution: hava kirliliği
+water pollution: su kirliliği
+noise pollution: gürültü kirliliği
+electromagnetic pollution: elektromanyetik kirlilik
+land / soil pollution: toprak kirliliği
+climate change: iklim değişikliği
+light pollution: ışık kirliliği
+natural resources: doğal kaynaklar
+environmental campaign: çevre kampanyası
+global warming: küresel ısınma
+drought: kuraklık
+deforestation: orman tahribi
+nuclear wastes: nükleer atıklar
+melting glaciers: buzulların erimesi
+litter: çevreye atılmış çöp
+greenhouse gases: sera gazları
+poisonous chemicals: zehirli kimyasallar
+bird watching: kuş gözlemciliği
+camping trip: kamp gezisi
+canoeing: kano sporu
+cycling: bisiklete binme
+hiking: doğa yürüyüşü
+catching fish: balık tutma
+exploring caves: mağara keşfetme
+making a snowman: kardan adam yapma
+nature walk: doğa yürüyüşü
+skiing: kar kayağı yapma
+climbing a mountain: dağa tırmanma
+boat tour: tekne turu
+joining a boat tour: tekne gezisine katılma
+riding a camel: deveye binme
+making a sandcastle: kumdan kale yapma
+riding a horse: ata binme
+rafting: rafting
+sailing: yelken sporu
+ice skating: buz pateni yapma
+scuba diving: tüplü dalış
+snowboarding: snowboard yapma
+outdoor activity: açık hava etkinliği
+global warming: küresel ısınma
+climate change: iklim değişikliği
+drought: kuraklık
+deforestation: ormansızlaşma
+melting glaciers: buzulların erimesi
+overpopulation: aşırı nüfus artışı
+fossil fuels: fosil yakıtlar
+environmental damage: çevresel zarar
+waste of energy: enerji israfı
+waste of water: su israfı
+adventure: macera
+artificial: yapay
+attend: katılmak
+air pollution: hava kirliliği
+become: olmak
+build: inşa etmek
+clean: temizlemek
+climate: iklim
+climb: tırmanmak
+camp: kamp
+competition: yarışma
+construction: inşaat
+cycling: bisiklet sürme
+danger: tehlike
+destroy: tahrip etmek
+draw: çizmek
+dump waste: atık boşaltmak
+eco-friendly: çevre dostu
+factory: fabrika
+fish: balık tutmak
+forest: orman
+hiking: doğa yürüyüşü
+human: insan
+holiday: tatil
+increase: artırmak
+learn:  öğrenmek
+lights: ışıklar
+least: en az
+little: az miktarda
+leave: bırakmak
+lake: göl
+pick up: toplamak
+plant: dikmek
+pollution: kirlilik
+protect: korumak
+public transport: toplu taşıma
+prevent: önlemek
+plastic: plastik
+rafting: rafting
+railway: demiryolu
+recycle: geri dönüştürmek
+recycling bin: geri dönüşüm kutusu
+reduce: azaltmak
+remove: çıkarmak
+reusable: tekrar kullanılabilir
+ride (a horse/bike): binmek
+rubbish: çöp
+sailing: yelken
+save: tasarruf etmek, korumak
+ski: kayak yapmak
+snowboarding: snowboard
+solution: çözüm
+solve: çözmek
+swim: yüzmek
+take: almak
+traffic jam: trafik sıkışıklığı
+tram: tramvay
+try: denemek
+together: birlikte
+turn off the light: ışığı söndürmek
+tree planting campaign: ağaç dikme kampanyası
+underground: metro
+waste: atık
+water pollution: su kirliliği
+winter: kış

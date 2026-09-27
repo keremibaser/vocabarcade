@@ -1,0 +1,100 @@
+architect: mimar
+artist: sanatçı
+assistant: asistan
+author: yazar
+bookbinder: ciltçi
+boss: patron
+businessman: iş adamı
+commander: komutan
+cook: aşçı
+dentist: dişçi
+designer: tasarımcı
+detective: dedektif
+director: yönetmen
+doctor: doktor
+employee: işçi
+engineer: mühendis
+journalist: gazeteci
+lawyer: avukat
+manager: yönetici
+officer: memur
+painter: boyacı
+pilot: pilot
+professor: profesör
+reporter: muhabir
+soldier: asker
+teacher: öğretmen
+wildlife photographer: yabani yaşam fotoğrafçısı
+arrive: varmak
+attend: katılmak
+be good at: bir şeyde iyi olmak
+become: olmak
+can’t wait: sabırsızlanmak
+care: önemsemek
+carry: taşımak
+choose: seçmek
+control: kontrol etmek
+decorate: dekore etmek
+design: tasarlamak
+earn money: para kazanmak
+farm: çiftçilik yapmak
+find: bulmak
+fly: uçmak
+give a project: proje vermek
+have a meeting: toplantısı olmak
+help: yardım etmek
+include: dahil etmek
+keep: tutmak
+leave: ayrılmak
+match: eşleştirmek
+move: taşınmak
+paint: boyamak
+prepare: hazırlamak
+present: sunmak
+read: okumak
+repair: tamir etmek
+rest: dinlenmek
+restore: yenileştirmek
+return: geri dönmek
+search: araştırmak
+solve problems: problem çözmek
+sound: (kulağa) gelmek
+start: başlamak
+take notes: not almak
+take off: (uçağın) havalanmak
+take photos: fotoğraf çekmek
+travel: seyahat etmek
+use: kullanmak
+visit: ziyaret etmek
+wait: beklemek
+watch  films:  film izlemek
+wear: giymek
+work: çalışmak
+check documents: belgeleri kontrol etmek
+check patients’ teeth: hastaların dişlerini kontrol etmek
+cook meals: yemek pişirmek
+design artworks and decorations: sanat eserleri ve dekorasyon tasarlamak
+design systems: sistemleri tasarlamak
+explore and discover nature: doğayı keşfetmek
+paint buildings / walls: bina / duvar boyamak
+prepares meals and desserts: yemek ve tatlı hazırlamak
+reports the news: haber sunmak
+run everything: her şeyi işletmek
+sell products: ürün satmak
+takes care of people’s teeth: insanların dişleri ile ilgilenmek
+teach students: öğrencilere öğretmek
+work with machines: makinelerle çalışmak
+write books: kitaplar yazmak
+boutique hotel: butik otel
+clinic: klinik
+company: şirket
+factory: fabrika
+film set: film seti
+government office: devlet dairesi
+kitchen: mutfak
+news agency: haber ajansı
+news company: haber şirketi
+office: ofis, büro
+restaurant: restoran
+school: okul
+university: üniversite

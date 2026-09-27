@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>VocabArcade — Turkish → English Game Host</title>
+<link rel="stylesheet" href="css/styles.css" />
+</head>
+<body data-screen="topics">
+  <!-- ===================== TOP NAV ===================== -->
+  <nav class="topnav">
+    <div class="brand">
+      <span class="brand__logo">🎮</span>
+      <div>
+        <h1 class="brand__name">VocabArcade</h1>
+        <p class="brand__tag">Learn English from Turkish — pick a topic, then play any game</p>
+      </div>
+    </div>
+    <div class="tabs">
+      <button class="tab" data-tab="topics">📚 Topics</button>
+      <button class="tab" data-tab="games">🎮 Games</button>
+    </div>
+    <div class="stats">
+      <div class="stat"><b id="stat-topics">0</b><span>topics</span></div>
+      <div class="stat"><b id="stat-games">0</b><span>games</span></div>
+    </div>
+  </nav>
+
+  <!-- ===================== TOPICS SCREEN ===================== -->
+  <section id="screen-topics" class="screen screen--topics">
+    <div class="controls">
+      <div id="topic-filter" class="chips"></div>
+      <span id="topic-count" class="lib-count"></span>
+      <button id="new-topic" class="btn btn--play btn--sm">＋ New topic</button>
+    </div>
+    <div class="flow-hint">
+      <span class="flow-hint__num">1</span>
+      <span>Choose a <b>topic</b>. Then go to <b>🎮 Games</b> and pick any game — it loads your topic.</span>
+    </div>
+    <main id="topic-grid" class="grid"></main>
+  </section>
+
+  <!-- ===================== GAMES SCREEN ===================== -->
+  <section id="screen-games" class="screen screen--games">
+    <div id="active-banner" class="active-banner">
+      <span class="active-banner__label">Active topic:</span>
+      <span id="active-emoji" class="active-banner__emoji">📘</span>
+      <span id="active-name" class="active-banner__name">—</span>
+      <span id="active-words" class="active-banner__words">0 words</span>
+      <button id="active-change" class="btn btn--ghost btn--sm">✎ Change topic</button>
+    </div>
+    <div id="no-topic" class="flow-hint flow-hint--warn" style="display:none">
+      <span class="flow-hint__num">!</span>
+      <span>No topic chosen. Pick a topic in the <b>📚 Topics</b> tab first.</span>
+    </div>
+    <div class="games-toolbar">
+      <button id="random-game" class="btn btn--play btn--accent">🎲 Random Game</button>
+      <button id="sound-toggle" class="btn btn--ghost btn--sm" aria-pressed="true">🔊 Sound: On</button>
+    </div>
+    <div class="flow-hint">
+      <span class="flow-hint__num">2</span>
+      <span>Pick a <b>game</b>. Whatever topic is active above will be loaded into it — no separate copy needed.</span>
+    </div>
+    <main id="game-grid" class="grid"></main>
+  </section>
+
+  <!-- ===================== PLAYER SCREEN ===================== -->
+  <section id="screen-player" class="screen screen--player">
+    <header class="playbar">
+      <div class="playbar__side playbar__side--left">
+        <button id="back-btn" class="btn btn--ghost btn--sm">‹ Back</button>
+        <button id="to-topics" class="btn btn--ghost btn--sm">📚 Topics</button>
+        <button id="to-games" class="btn btn--ghost btn--sm">🎮 Games</button>
+      </div>
+      <div class="playbar__center">
+        <div class="playbar__brand">🎮 VocabArcade</div>
+        <div class="playbar__game"><span id="player-title">Game</span> · <span id="player-type"></span> · <span id="player-sub"></span></div>
+      </div>
+      <div class="playbar__side playbar__side--right">
+        <button id="player-manage" class="btn btn--ghost btn--sm">⚙ Edit words</button>
+      </div>
+    </header>
+
+    <div class="hud">
+      <div class="hud__item"><span class="hud__label">Score</span><b id="hud-score">0</b></div>
+      <div class="hud__item"><span class="hud__label">Lives</span><b id="hud-lives">3</b></div>
+      <div class="hud__item"><span class="hud__label">Correct</span><b id="hud-correct">0</b></div>
+      <div class="hud__item"><span class="hud__label">Combo</span><b id="hud-combo">—</b></div>
+      <div class="hud__item"><span class="hud__label">Speed</span><b id="hud-level">—</b></div>
+      <div class="hud__barwrap"><div id="hud-bar" class="hud__bar"></div></div>
+    </div>
+
+    <div class="stage">
+      <iframe id="game-frame" class="game-frame" src="about:blank" frameborder="0" allow="fullscreen"></iframe>
+      <div id="combo-burst" class="combo-burst" aria-hidden="true"></div>
+      <div id="quiz-overlay" class="quiz">
+        <div class="quiz__panel">
+          <div class="quiz__header">📚 Vocabulary Challenge</div>
+          <div id="quiz-word" class="quiz__word">merhaba</div>
+          <div id="quiz-prompt" class="quiz__prompt">What does this Turkish word mean in English?</div>
+          <div id="quiz-options" class="quiz__options"></div>
+          <div id="quiz-result" class="quiz__result"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== TOPIC / VOCAB EDITOR ===================== -->
+  <div id="editor" class="editor">
+    <div class="editor__backdrop">
+      <div class="editor__panel">
+        <header class="editor__head">
+          <h2 id="editor-title">Edit topic</h2>
+          <button id="editor-cancel" class="btn btn--ghost btn--sm">✕ Close</button>
+        </header>
+        <div class="editor__meta">
+          <label class="editor__meta-field editor__meta-field--emoji">
+            <span>Icon</span>
+            <input id="editor-emoji" class="editor__meta-input" maxlength="4" placeholder="📘" />
+          </label>
+          <label class="editor__meta-field editor__meta-field--name">
+            <span>Topic name</span>
+            <input id="editor-name" class="editor__meta-input" maxlength="40" placeholder="e.g. My Custom Topic" />
+          </label>
+          <label class="editor__meta-field editor__meta-field--cat">
+            <span>Category</span>
+            <input id="editor-category" class="editor__meta-input" maxlength="24" placeholder="Custom" list="cat-list" />
+          </label>
+          <datalist id="cat-list">
+            <option value="Daily Life"></option><option value="Basics"></option>
+            <option value="School"></option><option value="Nature"></option><option value="Custom"></option>
+          </datalist>
+        </div>
+        <p class="editor__hint">
+          Each row is one <b>Turkish</b> word and its <b>English</b> answer. Distractors (wrong options)
+          are optional — if you leave them blank the game fills them with other English words from this topic.
+        </p>
+        <div class="editor__cols">
+          <span>#</span><span>Turkish</span><span>English</span><span>Distractor 1</span><span>Distractor 2</span><span>Distractor 3</span><span></span>
+        </div>
+        <div id="editor-grid" class="editor__grid"></div>
+        <footer class="editor__foot">
+          <span id="editor-wordcount" class="editor__wc">0 valid</span>
+          <span id="editor-status" class="editor__status"></span>
+          <div class="editor__btns">
+            <button id="editor-add" class="btn btn--ghost btn--sm">＋ Add word</button>
+            <button id="editor-save" class="btn btn--play btn--sm">💾 Save</button>
+          </div>
+        </footer>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== CONFIRM / RENAME DIALOG ===================== -->
+  <div id="dlg" class="dlg">
+    <div class="dlg__backdrop">
+      <div class="dlg__panel">
+        <h2 id="dlg-title" class="dlg__title">Title</h2>
+        <p id="dlg-msg" class="dlg__msg"></p>
+        <input id="dlg-input" class="dlg__input" />
+        <div class="dlg__btns">
+          <button id="dlg-cancel" class="btn btn--ghost btn--sm">Cancel</button>
+          <button id="dlg-ok" class="btn btn--play btn--sm">OK</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="data/topics.js"></script>
+  <script src="data/library.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/engine-common.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

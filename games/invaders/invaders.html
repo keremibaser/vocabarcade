@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Vocab Invaders</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #05060f; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  #c { display: block; width: 100vmin; height: 75vmin; max-width: 100vw; max-height: 100vh;
+       touch-action: none; box-shadow: 0 0 60px rgba(0,0,0,0.6); }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script src="../../js/engine-common.js"></script>
+<script>
+(function () {
+  "use strict";
+  const E = window.VocabEngine;
+
+  const launch = E.readLaunch() || { vocab: [], fromLang: "Word", toLang: "Meaning", accent: "#0ca678" };
+  let VOCAB = E.shuffle(launch.vocab || []);
+  const FROM = launch.fromLang || "Word";
+  const TO = launch.toLang || "Meaning";
+  const ACCENT = launch.accent || "#0ca678";
+
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+  let W = 800, H = 600;
+  function resize() {
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const ratio = 4 / 3;
+    let w = vw, h = vw / ratio;
+    if (h > vh) { h = vh; w = vh * ratio; }
+    canvas.style.width = w + "px"; canvas.style.height = h + "px";
+    canvas.width = W; canvas.height = H;
+  }
+  window.addEventListener("resize", resize); resize();
+
+  // ---- sound effects (shared implementation via engine-common) ----
+  // respects the host's sound toggle (playResolved sends `sound`)
+  const Sfx = E.sfx({ enabled: launch.sound !== false });
+
+  let state = "menu";
+  let score = 0, lives = 3, correct = 0, combo = 0, speedLevel = 0;
+  let totalAliens = 0, killed = 0;
+  let ship = null, bullets = [], aliens = [], particles = [], flashRect = null;
+  let quizAlien = null, awaitingAnswer = false;
+  let alienDir = 1, alienStepDown = false, alienTimer = 0;
+  const ALIEN_COLS = 8, ALIEN_ROWS = 4;
+  const ALIEN_W = 44, ALIEN_H = 30, ALIEN_GAP_X = 18, ALIEN_GAP_Y = 16, ALIEN_TOP = 80;
+  // march speed ramps SMOOTHLY with score — no sudden per-level speed jumps
+  const MARCH_MIN = 0.6, MARCH_MAX = 1.25, MARCH_CAP = 1800;
+  function marchSpeed() { return MARCH_MIN + Math.min(1, score / MARCH_CAP) * (MARCH_MAX - MARCH_MIN); }
+  // score milestones only light the ⚡ badge (a gentle progress marker, not a speed jump)
+  const SPEED_THR = [250, 550, 900, 1300, 1750];
+  // high score (mirrors the breakout design)
+  const HS_KEY = "vocabarcade.invaders.highscore";
+  let highscore = 0, lastWin = false;
+  try { highscore = parseInt(localStorage.getItem(HS_KEY) || "0", 10) || 0; } catch (_) {}
+  function saveHighscore(s) { try { localStorage.setItem(HS_KEY, String(s)); } catch (_) {} }
+
+  function makeShip() { return { x: W / 2, y: H - 46, w: 54, h: 46, speed: 460, cd: 0 }; }
+  function buildAliens() {
+    aliens = []; killed = 0;
+    const totalW = ALIEN_COLS * ALIEN_W + (ALIEN_COLS - 1) * ALIEN_GAP_X;
+    const startX = (W - totalW) / 2 + ALIEN_W / 2;
+    let vi = 0;
+    for (let r = 0; r < ALIEN_ROWS; r++) {
+      for (let c = 0; c < ALIEN_COLS; c++) {
+        const isEdu = VOCAB.length > 0 && ((c + r) % 3 === 0);
+        const a = {
+          x: startX + c * (ALIEN_W + ALIEN_GAP_X),
+          y: ALIEN_TOP + r * (ALIEN_H + ALIEN_GAP_Y),
+          w: ALIEN_W, h: ALIEN_H, alive: true, row: r,
+          edu: false, word: "", correct: "", options: [],
+          phase: Math.random() * 6.28,
+        };
+        if (isEdu) {
+          const e = VOCAB[vi % VOCAB.length]; vi++;
+          a.edu = true; a.word = e.from; a.correct = e.correct;
+          a.options = E.buildOptions(e).options;
+        }
+        aliens.push(a);
+      }
+    }
+    totalAliens = aliens.length;
+  }
+
+  function emitHud() { E.send(E.MSG.HUD, { score, lives, correct, combo, level: speedLevel }); }
+  function flash(color, a) { flashRect = { color, a }; }
+  function addScore(p) {
+    score += p;
+    if (speedLevel < SPEED_THR.length && score >= SPEED_THR[speedLevel]) {
+      speedLevel++; flash("#8a3ffc", 0.26);
+    }
+    emitHud();
+  }
+
+  // ---- input ----
+  const keys = {};
+  let autoFire = 0;
+  window.addEventListener("keydown", function (e) {
+    const k = e.key.toLowerCase();
+    keys[k] = true;
+    if (["arrowleft", "arrowright"].includes(k)) e.preventDefault();
+    // any key starts / restarts from menu or game-over
+    if (state === "menu" || state === "over") startGame();
+  });
+  window.addEventListener("keyup", function (e) { keys[e.key.toLowerCase()] = false; });
+  let pointerX = null, pointerDown = false;
+  function setPointerX(e) {
+    const rect = canvas.getBoundingClientRect();
+    pointerX = ((e.clientX - rect.left) / rect.width) * W;
+  }
+  window.addEventListener("pointermove", function (e) { setPointerX(e); });
+  window.addEventListener("pointerdown", function (e) {
+    if (state === "menu" || state === "over") { startGame(); return; }
+    // ship follows the mouse ONLY while the button is pressed on the playfield
+    if (e.target === canvas) { pointerDown = true; setPointerX(e); }
+  });
+  window.addEventListener("pointerup", function () { pointerDown = false; });
+  window.addEventListener("pointercancel", function () { pointerDown = false; });
+
+  function shoot() {
+    if (ship.cd > 0) return;
+    bullets.push({ x: ship.x, y: ship.y - ship.h / 2 - 2, vy: -1120, r: 4 });
+    ship.cd = 0.32;
+    Sfx.shoot();
+  }
+
+  E.listen(function (msg) {
+    if (msg.type === E.MSG.START) startGame();
+    else if (msg.type === E.MSG.PAUSE) { if (state === "playing") state = "paused"; }
+    else if (msg.type === E.MSG.RESUME) { if (state === "paused") state = "playing"; }
+    else if (msg.type === E.MSG.QUIT) state = "menu";
+    else if (msg.type === E.MSG.ANSWER) onAnswer(msg.correct);
+  });
+
+  function startGame() {
+    VOCAB = E.shuffle(launch.vocab || []);   // fresh question order on every run / restart
+    score = 0; lives = 3; correct = 0; combo = 0; speedLevel = 0;
+    ship = makeShip(); bullets = []; particles = []; flashRect = null;
+    awaitingAnswer = false; alienDir = 1; alienTimer = 0;
+    buildAliens();
+    state = "playing";
+    emitHud();
+  }
+
+  function onAnswer(isCorrect) {
+    awaitingAnswer = false;
+    const a = quizAlien; quizAlien = null;
+    if (!a) { state = "playing"; return; }
+    if (isCorrect) {
+      correct++; combo++; addScore(20);
+      if (combo >= 2) addScore((combo - 1) * 10);
+      flash("#22c55e", 0.3);
+      E.send(E.MSG.EVENT, { name: "correct" });
+      killAlien(a);                  // may set state="over" if it was the last alien
+      if (state === "over") return;   // win screen — ship stays put
+    } else {
+      combo = 0; lives--; flash("#ef4444", 0.42);
+      E.send(E.MSG.EVENT, { name: "wrong" });
+      emitHud();
+      if (lives <= 0) { gameOver(false); return; }
+    }
+    emitHud();
+    state = "playing";              // resume (fixes the freeze-after-answer bug)
+  }
+
+  function killAlien(a) {
+    if (!a.alive) return;
+    a.alive = false; killed++;
+    spawnParticles(a.x, a.y, "#5be9b9");
+    addScore(30);
+    Sfx.explode();
+    if (killed >= totalAliens) gameOver(true);
+  }
+
+  function gameOver(win) {
+    state = "over"; bullets = []; lastWin = win;
+    if (score > highscore) { highscore = score; saveHighscore(highscore); }
+    E.send(E.MSG.RESULT, { win, score, correct, total: totalAliens });
+    E.send(E.MSG.EVENT, { name: win ? "win" : "lose" });
+    flash(win ? "#eab308" : "#ef4444", 0.5);
+  }
+
+  function spawnParticles(x, y, color) {
+    for (let i = 0; i < 14; i++) {
+      const ang = Math.random() * Math.PI * 2, sp = 50 + Math.random() * 150;
+      particles.push({ x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 30, life: 0.5, age: 0, color, size: 3 + Math.random() * 3 });
+    }
+  }
+
+  function update(dt) {
+    if (state !== "playing") return;
+    if (ship.cd > 0) ship.cd -= dt;
+
+    // auto-fire ~once per second (independent of the short input cooldown)
+    autoFire += dt;
+    if (autoFire >= 1.0) { autoFire = 0; shoot(); }
+
+    // ship movement — keyboard (←→ / A D) always works;
+    // mouse-follow only engages while the button is held down (pointerDown)
+    const kl = (keys["arrowleft"] || keys["a"]) ? -1 : 0;
+    const kr = (keys["arrowright"] || keys["d"]) ? 1 : 0;
+    if (kl || kr) ship.x += (kl + kr) * ship.speed * dt;
+    else if (pointerDown && pointerX != null) ship.x += (pointerX - ship.x) * Math.min(1, dt * 16);
+    ship.x = Math.max(ship.w / 2, Math.min(W - ship.w / 2, ship.x));
+
+    // aliens march at a smoothly ramping speed (balanced, never a sudden jump)
+    const move = marchSpeed();
+    let minX = W, maxX = 0, anyAlive = false;
+    for (const a of aliens) {
+      if (state !== "playing") return;   // game-over/pause fired mid-update
+      if (a.alive) { anyAlive = true; minX = Math.min(minX, a.x); maxX = Math.max(maxX, a.x); }
+    }
+    if (!anyAlive) { gameOver(true); return; }
+    const dx = alienDir * move;
+    if (maxX + dx > W - 24 || minX + dx < 24) {
+      alienDir *= -1;
+      for (const a of aliens) {
+        if (state !== "playing") return;
+        a.y += 18;
+      }
+    } else {
+      for (const a of aliens) {
+        if (state !== "playing") return;
+        a.x += dx;
+      }
+    }
+
+    // alien reaches ship row -> lose
+    for (const a of aliens) {
+      if (state !== "playing") return;
+      if (a.alive && a.y + a.h / 2 >= ship.y - ship.h) { gameOver(false); return; }
+    }
+
+    // bullets — sub-stepped so the (now fast) shot can't tunnel through a ship
+    for (let i = bullets.length - 1; i >= 0; i--) {
+      if (state !== "playing") return;
+      const b = bullets[i];
+      const travel = b.vy * dt;
+      const steps = Math.max(1, Math.ceil(Math.abs(travel) / 8));
+      let hit = false;
+      for (let s = 0; s < steps; s++) {
+        b.y += travel / steps;
+        if (b.y < -10) break;
+        for (const a of aliens) {
+          if (!a.alive) continue;
+          if (b.x > a.x - a.w / 2 && b.x < a.x + a.w / 2 && b.y < a.y + a.h / 2 && b.y > a.y - a.h / 2) {
+            hit = true;
+            if (a.edu) {
+              awaitingAnswer = true; quizAlien = a; state = "paused";
+              E.send(E.MSG.ASK, { word: a.word, correct: a.correct, options: a.options });
+              Sfx.edu();
+            } else killAlien(a);
+            break;
+          }
+        }
+        if (hit || state !== "playing") break;
+      }
+      if (hit || b.y < -10) bullets.splice(i, 1);
+    }
+
+    // particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.age += dt; p.vy += 200 * dt; p.x += p.vx * dt; p.y += p.vy * dt;
+      if (p.age >= p.life) particles.splice(i, 1);
+    }
+  }
+
+  // =====================================================================
+  // DECORATIVE SPACE BACKGROUND (stars + asteroids — visual only)
+  // =====================================================================
+  const stars = [], rocks = [];
+  (function initBackground() {
+    for (let i = 0; i < 130; i++) {
+      stars.push({ x: Math.random() * W, y: Math.random() * H, r: 0.3 + Math.random() * 1.6,
+        a: 0.25 + Math.random() * 0.6, tw: Math.random() * 6.28, sp: 4 + Math.random() * 16 });
+    }
+    for (let i = 0; i < 5; i++) {
+      const R = 14 + Math.random() * 24, pts = [], n = 8 + Math.floor(Math.random() * 4);
+      for (let k = 0; k < n; k++) {
+        const ang = (k / n) * Math.PI * 2, rr = R * (0.7 + Math.random() * 0.4);
+        pts.push({ x: Math.cos(ang) * rr, y: Math.sin(ang) * rr });
+      }
+      rocks.push({ x: Math.random() * W, y: Math.random() * H, R: R, pts: pts,
+        rot: Math.random() * 6.28, vrot: (Math.random() - 0.5) * 0.35,
+        vy: 3 + Math.random() * 10, vx: (Math.random() - 0.5) * 8, a: 0.08 + Math.random() * 0.10 });
+    }
+  })();
+
+  function drawBackground(dt) {
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = "#05060f"; ctx.fillRect(0, 0, W, H);
+
+    // soft nebula glows (low-alpha discs — no canvas gradients, so the test shim stays happy)
+    ctx.fillStyle = "rgba(45,60,130,0.10)";
+    ctx.beginPath(); ctx.arc(W * 0.22, H * 0.28, 240, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "rgba(120,40,120,0.08)";
+    ctx.beginPath(); ctx.arc(W * 0.82, H * 0.72, 260, 0, Math.PI * 2); ctx.fill();
+
+    // twinkling stars that drift slowly downward
+    for (let i = 0; i < stars.length; i++) {
+      const s = stars[i];
+      s.tw += 0.05; s.y += s.sp * dt;
+      if (s.y > H) { s.y = -2; s.x = Math.random() * W; }
+      ctx.globalAlpha = s.a * (0.55 + 0.45 * Math.sin(s.tw));
+      ctx.fillStyle = "#d7e6ff";
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // tumbling asteroids
+    for (let i = 0; i < rocks.length; i++) {
+      const r = rocks[i];
+      r.x += r.vx * dt; r.y += r.vy * dt; r.rot += r.vrot * dt;
+      if (r.y - r.R > H) { r.y = -r.R; r.x = Math.random() * W; }
+      if (r.x < -r.R) r.x = W + r.R; else if (r.x > W + r.R) r.x = -r.R;
+      ctx.save(); ctx.translate(r.x, r.y); ctx.rotate(r.rot);
+      ctx.fillStyle = "rgba(118,128,158," + r.a + ")";
+      ctx.beginPath();
+      for (let k = 0; k < r.pts.length; k++) { const p = r.pts[k]; if (k === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); }
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = "rgba(168,182,214," + (r.a * 1.7) + ")"; ctx.lineWidth = 1.2; ctx.stroke();
+      ctx.fillStyle = "rgba(86,96,128," + (r.a * 1.5) + ")";
+      ctx.beginPath(); ctx.arc(-r.R * 0.26, -r.R * 0.16, r.R * 0.18, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(r.R * 0.27, r.R * 0.2, r.R * 0.12, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // =====================================================================
+  // ENEMY SPACESHIPS (3 hull designs, cycled by row)
+  // =====================================================================
+  const ALIEN_COLORS = [
+    { hull: "#0e9f6e", trim: "#7bf1c4", glow: "#22c55e", glass: "#c6f6e5" },
+    { hull: "#0e7490", trim: "#7dd3fc", glow: "#22d3ee", glass: "#cffafe" },
+    { hull: "#6d28d9", trim: "#c4b5fd", glow: "#a855f7", glass: "#ece9ff" },
+    { hull: "#be185d", trim: "#f9a8d4", glow: "#ec4899", glass: "#ffe1ef" },
+  ];
+
+  function drawAlien(a) {
+    a.phase += 0.05;
+    const w = a.w, h = a.h, c = ALIEN_COLORS[a.row % ALIEN_COLORS.length];
+    const kind = a.row % 3;
+    ctx.save();
+    ctx.translate(a.x, a.y);
+    ctx.lineJoin = "round";
+    ctx.shadowColor = c.glow; ctx.shadowBlur = 9;
+    ctx.fillStyle = c.hull;
+
+    if (kind === 0) {
+      // saucer: wide hull + glass dome + running lights
+      ctx.beginPath(); ctx.ellipse(0, h * 0.12, w * 0.50, h * 0.30, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = c.trim; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(0, h * 0.12, w * 0.50, h * 0.30, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = c.glass;
+      ctx.beginPath(); ctx.ellipse(0, -h * 0.04, w * 0.24, h * 0.32, 0, Math.PI, 0); ctx.fill();
+      ctx.strokeStyle = c.trim; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.fillStyle = c.glow;
+      for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.arc(i * w * 0.30, h * 0.20, 1.8, 0, Math.PI * 2); ctx.fill(); }
+    } else if (kind === 1) {
+      // fighter: fuselage + swept wings
+      ctx.beginPath();
+      ctx.moveTo(-w * 0.50, -h * 0.06); ctx.lineTo(-w * 0.13, h * 0.08);
+      ctx.lineTo(-w * 0.16, h * 0.44); ctx.lineTo(-w * 0.46, h * 0.34); ctx.closePath(); ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(w * 0.50, -h * 0.06); ctx.lineTo(w * 0.13, h * 0.08);
+      ctx.lineTo(w * 0.16, h * 0.44); ctx.lineTo(w * 0.46, h * 0.34); ctx.closePath(); ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(0, -h * 0.52); ctx.lineTo(w * 0.17, h * 0.06);
+      ctx.lineTo(w * 0.13, h * 0.44); ctx.lineTo(-w * 0.13, h * 0.44);
+      ctx.lineTo(-w * 0.17, h * 0.06); ctx.closePath(); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = c.trim; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.fillStyle = c.glass;
+      ctx.beginPath(); ctx.ellipse(0, -h * 0.14, w * 0.10, h * 0.17, 0, 0, Math.PI * 2); ctx.fill();
+    } else {
+      // dart: sharp arrow with a cockpit
+      ctx.beginPath();
+      ctx.moveTo(0, -h * 0.52); ctx.lineTo(w * 0.50, h * 0.34);
+      ctx.lineTo(w * 0.20, h * 0.20); ctx.lineTo(0, h * 0.46);
+      ctx.lineTo(-w * 0.20, h * 0.20); ctx.lineTo(-w * 0.50, h * 0.34);
+      ctx.closePath(); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = c.trim; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.fillStyle = c.glass;
+      ctx.beginPath(); ctx.arc(0, -h * 0.06, w * 0.10, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // enemies carrying a word show a floating ❓ badge
+    if (a.edu) {
+      const pr = 6 + (Math.sin(a.phase) + 1) * 1.5;
+      ctx.shadowColor = "#ffd54a"; ctx.shadowBlur = 12;
+      ctx.fillStyle = "#ffd23f";
+      ctx.beginPath(); ctx.arc(0, 0, pr, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#2a1c00"; ctx.font = "bold 12px system-ui"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText("?", 0, 1);
+    }
+    ctx.restore();
+  }
+
+  // =====================================================================
+  // PLAYER — single-wing fighter (top-down)
+  // =====================================================================
+  function drawShip() {
+    if (!ship) return;
+    const w = ship.w, h = ship.h;
+    const flick = 0.7 + 0.3 * Math.sin(performance.now() / 60);
+    ctx.save();
+    ctx.translate(ship.x, ship.y);
+    ctx.lineJoin = "round";
+
+    // ---- one swept delta wing ----
+    ctx.beginPath();
+    ctx.moveTo(0, -h * 0.16);
+    ctx.lineTo(w * 0.50, h * 0.24);
+    ctx.lineTo(w * 0.40, h * 0.42);
+    ctx.lineTo(-w * 0.40, h * 0.42);
+    ctx.lineTo(-w * 0.50, h * 0.24);
+    ctx.closePath();
+    ctx.fillStyle = "#c7d0dd"; ctx.fill();
+    ctx.strokeStyle = "#8d97aa"; ctx.lineWidth = 1.6; ctx.stroke();
+
+    // accent chevrons on the wing
+    ctx.strokeStyle = ACCENT; ctx.lineWidth = 2; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(-w * 0.38, h * 0.28); ctx.lineTo(-w * 0.20, h * 0.38); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(w * 0.38, h * 0.28); ctx.lineTo(w * 0.20, h * 0.38); ctx.stroke();
+    ctx.lineCap = "butt";
+
+    // wingtip navigation lights (port red / starboard green)
+    ctx.fillStyle = "#ff5b5b"; ctx.beginPath(); ctx.arc(-w * 0.48, h * 0.26, 2.1, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#5bff8f"; ctx.beginPath(); ctx.arc(w * 0.48, h * 0.26, 2.1, 0, Math.PI * 2); ctx.fill();
+
+    // ---- twin engines + flickering exhaust ----
+    ctx.fillStyle = "rgba(255,180,90," + (0.6 * flick) + ")";
+    for (let s = -1; s <= 1; s += 2) {
+      ctx.beginPath();
+      ctx.moveTo(s * w * 0.16 - 3.5, h * 0.44);
+      ctx.lineTo(s * w * 0.16 + 3.5, h * 0.44);
+      ctx.lineTo(s * w * 0.16, h * 0.44 + 12 * flick);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.shadowColor = "#ff7a2d"; ctx.shadowBlur = 14 * flick; ctx.fillStyle = "#ffb066";
+    for (let s = -1; s <= 1; s += 2) { ctx.beginPath(); ctx.arc(s * w * 0.16, h * 0.44, 3.6, 0, Math.PI * 2); ctx.fill(); }
+    ctx.shadowBlur = 0;
+
+    // ---- fuselage ----
+    ctx.fillStyle = "#eef2f8";
+    ctx.beginPath();
+    ctx.moveTo(0, -h * 0.52);
+    ctx.lineTo(w * 0.10, -h * 0.08); ctx.lineTo(w * 0.11, h * 0.44);
+    ctx.lineTo(-w * 0.11, h * 0.44); ctx.lineTo(-w * 0.10, -h * 0.08);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = "#9aa6ba"; ctx.lineWidth = 1.5; ctx.stroke();
+
+    // nose accent stripe
+    ctx.fillStyle = ACCENT;
+    ctx.beginPath(); ctx.moveTo(0, -h * 0.52);
+    ctx.lineTo(w * 0.06, -h * 0.24); ctx.lineTo(-w * 0.06, -h * 0.24); ctx.closePath(); ctx.fill();
+
+    // cockpit canopy
+    ctx.fillStyle = "#7dd3fc";
+    ctx.beginPath(); ctx.ellipse(0, -h * 0.14, w * 0.085, h * 0.16, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.75)"; ctx.lineWidth = 1; ctx.stroke();
+
+    ctx.restore();
+  }
+
+  function draw(dt) {
+    drawBackground(dt);
+
+    for (let i = 0; i < aliens.length; i++) if (aliens[i].alive) drawAlien(aliens[i]);
+
+    // bullets
+    ctx.shadowColor = "#8ff6d6"; ctx.shadowBlur = 8; ctx.fillStyle = "#d8fff0";
+    for (let i = 0; i < bullets.length; i++) { const b = bullets[i]; roundRect(b.x - 2, b.y - 7, 4, 14, 2); ctx.fill(); }
+    ctx.shadowBlur = 0;
+
+    // particles
+    for (const p of particles) {
+      ctx.globalAlpha = Math.max(0, 1 - p.age / p.life);
+      ctx.fillStyle = p.color; ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    }
+    ctx.globalAlpha = 1;
+
+    drawShip();
+
+    // flash
+    if (flashRect && flashRect.a > 0.01) {
+      ctx.fillStyle = hexA(flashRect.color, flashRect.a);
+      ctx.fillRect(0, 0, W, H); flashRect.a *= 0.92;
+    }
+
+    // HUD
+    ctx.fillStyle = "rgba(255,255,255,0.9)"; ctx.font = "bold 16px system-ui";
+    ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillText("Score " + score, 14, 12);
+    ctx.textAlign = "right"; ctx.fillText("♥ " + lives, W - 14, 12);
+    ctx.fillStyle = "#bfe6a0"; ctx.textAlign = "center"; ctx.fillText("✓ " + correct + "  " + FROM, W / 2, 12);
+    if (combo >= 2) { ctx.fillStyle = "#ffcf33"; ctx.fillText("🔥 x" + combo, W / 2, 32); }
+    if (speedLevel > 0) { ctx.fillStyle = "#b794ff"; ctx.fillText("⚡ Lv." + speedLevel, W / 2, 52); }
+
+    // ---- start / game-over screens (same design as breakout) ----
+    if (state === "menu") {
+      drawScreen("🛸 Vocab Invaders",
+        ["Shoot the aliens — answer their words!",
+         highscore > 0 ? "🏆 Best Score: " + highscore : "No high score yet — be the first!",
+         "← →  or  A / D  to move ·  hold & drag the mouse to steer",
+         "Auto-fires 1×/sec ·  hit a ❓ alien to answer a word"],
+        "Tap the screen or press any key to start", "#ffd56b");
+    } else if (state === "over") {
+      const newHs = score >= highscore && score > 0;
+      drawScreen(lastWin ? "🏆 YOU WIN!" : "💀 GAME OVER",
+        [(lastWin ? "All aliens defeated!" : "Earth is overrun!"),
+         "📖 Words correct: " + correct,
+         "Final Score: " + score + (newHs ? "   🏆 NEW!" : ""),
+         highscore > 0 ? "🏆 Best: " + highscore : ""].filter(Boolean),
+        "↺ Play again  (tap screen or press any key)", lastWin ? "#ffe08a" : "#ff8a8a");
+    }
+  }
+
+  // centered styled panel (matches breakout's drawScreen)
+  function drawScreen(title, lines, footer, titleColor) {
+    ctx.fillStyle = "rgba(3,5,12,0.72)"; ctx.fillRect(0, 0, W, H);
+    const pw = 470, ph = 300, px = (W - pw) / 2, py = (H - ph) / 2;
+    roundRect(px, py, pw, ph, 16);
+    ctx.fillStyle = "rgba(13,17,28,0.97)"; ctx.fill();
+    ctx.lineWidth = 3; ctx.strokeStyle = ACCENT; ctx.stroke();
+    ctx.textAlign = "center";
+    ctx.fillStyle = titleColor || ACCENT;
+    ctx.font = "bold 33px system-ui, sans-serif";
+    ctx.fillText(title, W / 2, py + 56);
+    ctx.fillStyle = "#dfe6ff"; ctx.font = "15px system-ui, sans-serif";
+    let y = py + 108;
+    for (let i = 0; i < lines.length; i++) { ctx.fillText(lines[i], W / 2, y); y += 28; }
+    ctx.fillStyle = ACCENT; ctx.font = "bold 17px system-ui, sans-serif";
+    ctx.fillText(footer, W / 2, py + ph - 34);
+    ctx.textAlign = "left";
+  }
+
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath(); ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+  function hexA(hex, a) {
+    const h = hex.replace("#", "");
+    return "rgba(" + parseInt(h.substr(0, 2), 16) + "," + parseInt(h.substr(2, 2), 16) + "," + parseInt(h.substr(4, 2), 16) + "," + a + ")";
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    let dt = (now - last) / 1000; last = now;
+    if (dt > 0.05) dt = 0.05;
+    update(dt); draw(dt); requestAnimationFrame(frame);
+  }
+  E.send(E.MSG.READY);
+
+  // ── test seam (used only by test_invaders.js; inert in normal play) ──
+  if (window.__INV_TEST__) {
+    window.__inv = {
+      getState: function () { return state; },
+      lives: function () { return lives; },
+      marchSpeed: function () { return marchSpeed(); },
+      setScore: function (s) { score = s; },
+      shootOnce: function () { ship.cd = 0; shoot(); return bullets.length ? bullets[bullets.length - 1].vy : null; },
+      hitEdu: function (correct) {
+        const a = aliens.find(function (x) { return x.edu && x.alive; }) || aliens.find(function (x) { return x.alive; });
+        if (!a) return state;
+        awaitingAnswer = true; quizAlien = a; state = "paused";
+        onAnswer(correct);
+        return state;
+      },
+    };
+  }
+
+  // No on-screen buttons: the ship auto-fires and steers by holding+drag
+  // the mouse (like Breakout), so touch buttons are unnecessary.
+
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

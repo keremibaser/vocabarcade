@@ -1,0 +1,111 @@
+accessories: aksesuarlar
+activities: aktiviteler
+after school: okuldan sonra
+always: her zaman
+arm: kol
+autumn: sonbahar
+backpack: sırt çantası
+belt: kemer
+black: siyah
+blouse: bluz
+blue: mavi
+body parts: vücut bölümleri
+body: vücut
+boots: bot
+bright: parlak
+clean: temiz
+clothes: kıyafetler
+coat: mont
+cold weather: soğuk hava
+comfortable: rahat
+costume: kostüm
+curly: kıvırcık
+daily routines / activities: günlük rutinler
+draw pictures: resim çizmek
+dress: elbise
+early: erken
+eat out: dışarıda yemek
+eye colour: göz rengi
+eyes: gözler
+family members: aile üyeleri
+ fashion tips:  moda ipuçları
+fashion: moda
+feet: ayaklar
+female: kadın
+foot: ayak
+get dressed: giyinmek
+get up: yataktan kalkmak
+glasses: gözlük
+gloves: eldiven
+go for a walk: yürüyüşe çıkmak
+go hiking: doğa yürüyüşüne çıkmak
+go jogging: koşuya çıkmak
+go to the park: parka gitmek
+green: yeşil
+hair: saç
+hand: el
+handbag: el çantası
+hat: şapka
+head: baş
+headscarf: başörtüsü
+health problems: sağlık sorunları
+height: boy
+hot weather: sıcak hava
+item: nesne
+jacket: ceket
+jeans: kot pantolon
+jumper: kazak
+late: geç
+leg: bacak
+light: açık renk
+long: uzun
+lunch: öğle yemeği
+male: erkek
+man: adam
+medium height: orta boylu
+medium weight: orta kilolu
+meet friends: arkadaşlarla buluşmak
+necessary: gerekli
+neck: boyun
+necklace: kolye
+never: asla
+new: yeni
+nose: burun
+only: sadece
+physical features: fiziksel özellikler
+play chess: satranç oynamak
+play video  games: bilgisayar oyunu oynamak
+protect: korumak
+purple: mor
+put on: giymek
+raincoat: yağmurluk
+read a magazine: dergi okumak
+read books: kitap okumak
+scarf: atkı
+shirt: gömlek
+shoes: ayakkabılar
+shopping: alışveriş
+short: kısa
+skirt: etek
+slim: zayıf
+socks: çoraplar
+sometimes: bazen
+spring: ilkbahar
+straight: düz
+summer: yaz
+sunglasses: güneş gözlüğü
+tall: uzun boylu
+trendy: modaya uygun
+trousers: pantolon
+try on: denemek
+t-shirt: tişört
+umbrella: şemsiye
+usually: genellikle
+wardrobe: gardırop
+warm: ılık
+watch: kol saati
+watch TV: televizyon izlemek
+wavy: dalgalı
+wear: giymek
+weight: kilo
+white: beyaz

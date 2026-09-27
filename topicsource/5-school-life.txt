@@ -1,0 +1,84 @@
+actions: eylemler
+administration department: idari birim
+administration: idare
+art club: resim kulübü
+assistant: yardımcı, asistan
+Azerbaijan: Azerbaycan
+best friend: yakın arkadaş
+Canada: Kanada
+canteen: kantin
+celebrations: kutlamalar
+chess club: satranç kulübü
+chew gum: sakız çiğnemek
+China: Çin
+classroom: sınıf
+coach: antrenör, koç
+color: boyamak
+conference hall: konferans salonu
+cook: aşçı
+country: ülke
+department: bölüm
+doctor: doktor
+drama club: drama kulübü
+draw a picture: resim çizmek
+enjoy: hoşlanmak
+environment club: çevre kulübü
+explain: açıklamak
+favorite: favori
+find: bulmak
+flag: bayrak
+fold: katlamak
+folk dance club: halk oyunları kulübü
+France: Fransa
+free time: boş zaman
+gate: kapı
+Germany: Almanya
+headmaster: okul müdürü
+hobbies: hobiler
+introduce: tanıtmak
+Italy: İtalya
+Japan: Japonya
+join: katılmak
+Kyrgyzstan: Kırgızistan
+lab rules: laboratuvar kuralları
+lab: laboratuvar
+library: kütüphane
+like: sevmek
+look for: aramak
+love: çok sevmek
+maths club: matematik kulübü
+Mexico: Meksika
+music club: müzik kulübü
+name: isim
+national days: milli bayramlar
+obey: uymak
+people: insanlar
+place: yer
+play the guitar: gitar çalmak
+protect: korumak
+public: kamu
+read a book: kitap okumak
+religious days: dini bayramlar
+respect laws: yasalara saygı duymak
+rule: kural
+run: koşmak
+Russia: Rusya
+safe: güvenli
+school club: okul kulübü
+school trips: okul gezileri
+science club: fen / bilim kulübü
+secretary: sekreter
+shout: bağırmak
+sing a song: şarkı söylemek
+solve a problem: problem çözmek
+Spain: İspanya
+student card: öğrenci kartı
+student: öğrenci
+subject: ders
+summer camps: yaz kampları
+talk: konuşmak
+teacher: öğretmen
+technology club: teknoloji kulübü
+UK (United Kingdom): Birleşik Krallık
+want: istemek
+who: kim

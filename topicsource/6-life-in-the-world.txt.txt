@@ -1,0 +1,70 @@
+Austria: Avusturya
+Austrian: Avusturyalı
+Belgian: Belçikalı
+Belgium: Belçika
+Danish: Danimarkalı
+Denmark: Danimarka
+Dutch: Hollandalı
+England: İngiltere
+English: İngiliz / İngilizce
+France: Fransa
+French: Fransız / Fransızca
+German: Alman / Almanca
+Germany: Almanya
+Greece: Yunanistan
+Greek: Yunan / Yunanca
+India: Hindistan
+Indian: Hintli
+Italian: İtalyan / İtalyanca
+Italy: İtalya
+Poland: Polonya
+Polish: Polonyalı
+Spain: İspanya
+Spanish: İspanyol / İspanyolca
+Sweden: İsveç
+Swedish: İsveçli / İsveççe
+The Netherlands: Hollanda
+Turkish: Türk / Türkçe
+Turkish Cypriot: Kıbrıs Türkü
+Turkish Republic of Northern Cyprus: Kuzey Kıbrıs Türk Cumhuriyeti
+appetiser: meze, iştah açıcı
+bitter: acı (tat)
+crispy: gevrek, çıtır çıtır
+crunchy: kıtır kıtır, çıtır
+cuisine: mutfak, yemek kültürü
+dessert: tatlı
+dish: yemek
+dry: kurutmak, kurumak
+dumpling: mantı, hamur köftesi
+flavourful: lezzetli, aromalı
+food stall: yemek tezgahı, büfe
+heat: ısıtmak
+homemade: ev yapımı
+ingredient: malzeme
+main course: ana yemek
+pop-up market: seyyar pazar
+sour: ekşi
+spicy: baharatlı
+street food: sokak lezzeti / yemeği
+anywhere: herhangi bir yer, hiçbir yer
+capital: başkent
+competition: yarışma
+country: ülke
+everywhere: her yer, her yere
+experience: deneyim, tecrübe
+flag: bayrak
+foreign: yabancı
+gorgeous: harika, muhteşem
+government: hükümet
+heritage: miras (kültürel miras)
+high-quality: yüksek kaliteli
+historic: tarihi
+incredible: inanılmaz
+nation: millet, ulus
+national: ulusal, milli
+nowhere: hiçbir yer, hiçbir yere
+official: resmi
+somewhere: bir yer, bir yere
+tradition: gelenek
+traditional: geleneksel
+worth: değer, değerinde

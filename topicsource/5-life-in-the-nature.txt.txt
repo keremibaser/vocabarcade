@@ -1,0 +1,66 @@
+ability: yetenek
+active: hareketli
+advise: tavsiye vermek
+air: hava
+amazing: inanılmaz
+attack: saldırmak
+bad: kötü
+bark: havlamak
+bear: ayı
+bee: arı
+big: büyük
+bird: kuş
+body part: vücut parçası
+careful: dikkatli
+cheetah: çita
+climb: tırmanmak
+coast: sahil
+cold: soğuk
+colony: koloni
+colorful: renkli
+communicate: iletişim kurmak
+crocodile: timsah
+cute: sevimli
+danger: tehlike
+dangerous: tehlikeli
+diet: beslenme şekli
+eagle: kartal
+easy: kolay
+elephant: fil
+enormous: kocaman
+farm: çiftlik
+fast: hızlı
+feather: tüy
+forest: orman
+friendly: arkadaş canlısı
+funny: eğlenceli
+furry: tüylü
+giraffe: zürafa
+gorilla: goril
+grass: çimen
+habitat: yaşam alanı
+hunt: avlamak
+insect: böcek
+jungle: orman
+lion: aslan
+mammal: memeli
+monkey: maymun
+mountain: dağ
+ocean: okyanus
+penguin: penguen
+pet: evcil hayvan
+reptile: sürüngen
+river: nehir
+safe: güvenli
+sea: deniz
+shark: köpek balığı
+snake: yılan
+snow: kar
+strong: güçlü
+survive: hayatta kalmak
+tail: kuyruk
+tiger: kaplan
+travel: seyahat etmek
+water: su
+wild: vahşi
+wolf: kurt

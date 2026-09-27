@@ -1,0 +1,44 @@
+amazing: harika
+amusement park: lunapark
+autumn (fall): sonbahar
+beach: plaj
+beautiful: güzel
+ book: rezervasyon yapmak
+bridge: köprü
+build: inşa etmek
+calm: sakin
+canyon: kanyon
+climate: iklim
+coin: madeni para
+continent: kıta
+deep: derin
+desert: çöl
+destination: varış noktası
+dream: hayal kurmak
+excited: heyecanlı
+explore: keşfetmek
+famous: ünlü
+holiday: tatil
+island: ada
+journey: yolculuk
+lake: göl
+magical: büyülü
+mountain: dağ
+national park: milli park
+opportunity: fırsat
+peaceful: huzurlu
+protect: korumak
+relax: rahatlamak
+space: uzay
+spring: ilkbahar
+summer: yaz
+temperature: sıcaklık
+tour: tur
+travel: seyahat etmek
+trip: gezi
+unforgettable: unutulmaz
+valley: vadi
+vehicle: araç
+view: manzara
+winter: kış
+zoo: hayvanat bahçesi

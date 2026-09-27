@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Vocab Pac-Man</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #12172b; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  #c { display: block; width: 100vmin; height: 75vmin; max-width: 100vw; max-height: 100vh;
+       touch-action: none; border-radius: 12px;
+       border: 3px solid rgba(252, 196, 25, 0.35);
+       box-shadow: 0 0 45px rgba(252, 196, 25, 0.15), 0 0 80px rgba(0,0,0,0.6); }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script src="../../js/engine-common.js"></script>
+<script>
+(function () {
+  "use strict";
+  const E = window.VocabEngine;
+
+  const launch = E.readLaunch() || { vocab: [], fromLang: "Word", toLang: "Meaning", accent: "#fcc419" };
+  const Sfx = E.sfx({ enabled: launch.sound !== false });
+  let VOCAB = E.shuffle(launch.vocab || []);
+  const FROM = launch.fromLang || "Word";
+  const TO = launch.toLang || "Meaning";
+  const ACCENT = launch.accent || "#fcc419";
+
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+  let W = 800, H = 600;
+  function resize() {
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const ratio = 4 / 3;
+    let w = vw, h = vw / ratio;
+    if (h > vh) { h = vh; w = vh * ratio; }
+    canvas.style.width = w + "px"; canvas.style.height = h + "px";
+    canvas.width = W; canvas.height = H;
+  }
+  window.addEventListener("resize", resize); resize();
+
+  // ---- maze (15x15 procedural randomized layout with symmetry and connectivity guarantee) ----
+  const MW = 15, MH = 15;
+  const walls = [], dots = [], pellets = [];
+  const PAC_HOME = { c: 7, r: 11 };
+  const GHOST_HOMES = [ { c: 7, r: 7 }, { c: 5, r: 7 }, { c: 9, r: 7 } ];
+  const PELLET_CELLS = [ { c: 1, r: 1 }, { c: 13, r: 1 }, { c: 1, r: 13 }, { c: 13, r: 13 } ];
+  let totalDots = 0;
+  function isBorder(c, r) { return c === 0 || c === MW - 1 || r === 0 || r === MH - 1; }
+
+  // Check connectivity with BFS from PAC_HOME to ensure no trapped open cells
+  function checkConnectivity(wGrid) {
+    const visited = [];
+    for (let r = 0; r < MH; r++) visited[r] = [];
+    const q = [{ c: PAC_HOME.c, r: PAC_HOME.r }];
+    visited[PAC_HOME.r][PAC_HOME.c] = true;
+    let reachableCount = 0;
+
+    while (q.length) {
+      const cur = q.shift();
+      reachableCount++;
+      const dirs = [{ c: 1, r: 0 }, { c: -1, r: 0 }, { c: 0, r: 1 }, { c: 0, r: -1 }];
+      for (let i = 0; i < dirs.length; i++) {
+        const nc = cur.c + dirs[i].c, nr = cur.r + dirs[i].r;
+        if (nc >= 0 && nc < MW && nr >= 0 && nr < MH && !wGrid[nr][nc] && !visited[nr][nc]) {
+          visited[nr][nc] = true;
+          q.push({ c: nc, r: nr });
+        }
+      }
+    }
+
+    // Verify all special spots (ghost homes + pellets) and check for unreachable open cells
+    for (let i = 0; i < GHOST_HOMES.length; i++) {
+      if (!visited[GHOST_HOMES[i].r][GHOST_HOMES[i].c]) return false;
+    }
+    for (let i = 0; i < PELLET_CELLS.length; i++) {
+      if (!visited[PELLET_CELLS[i].r][PELLET_CELLS[i].c]) return false;
+    }
+
+    // Convert any unreachable open cells into walls so there are no trapped floating dots
+    for (let r = 0; r < MH; r++) {
+      for (let c = 0; c < MW; c++) {
+        if (!wGrid[r][c] && !visited[r][c]) {
+          wGrid[r][c] = 1;
+        }
+      }
+    }
+    return true;
+  }
+
+  function buildMaze() {
+    let attempts = 0;
+    let valid = false;
+
+    while (!valid && attempts < 60) {
+      attempts++;
+      walls.length = 0; dots.length = 0; pellets.length = 0; totalDots = 0;
+
+      // Start with lattice grid (columns/rows)
+      for (let r = 0; r < MH; r++) {
+        walls[r] = []; dots[r] = []; pellets[r] = [];
+        for (let c = 0; c < MW; c++) {
+          let w = isBorder(c, r) ? 1 : 0;
+          walls[r][c] = w;
+          dots[r][c] = false; pellets[r][c] = false;
+        }
+      }
+
+      // Generate randomized symmetrical wall obstacles (islands, T-shapes, L-shapes)
+      // We generate on the left half (c: 1..6) and mirror to right half (MW - 1 - c)
+      const features = [
+        // Random 2x2 or 2x1 blocks
+        { r: 2, c: 2, w: 2, h: 2 },
+        { r: 2, c: 5, w: 2, h: 2 },
+        { r: 5, c: 2, w: 1, h: 3 },
+        { r: 5, c: 4, w: 2, h: 1 },
+        { r: 9, c: 2, w: 2, h: 2 },
+        { r: 9, c: 5, w: 1, h: 3 },
+        { r: 12, c: 2, w: 3, h: 1 },
+        { r: 12, c: 6, w: 1, h: 2 },
+      ];
+
+      // Shuffle & randomly toggle wall segments
+      for (let i = 0; i < features.length; i++) {
+        const f = features[i];
+        if (Math.random() < 0.65) {
+          // Choose orientation variation
+          const flipH = Math.random() < 0.3;
+          const fw = flipH ? f.h : f.w;
+          const fh = flipH ? f.w : f.h;
+          for (let dr = 0; dr < fh; dr++) {
+            for (let dc = 0; dc < fw; dc++) {
+              const r = f.r + dr, c = f.c + dc;
+              if (r > 0 && r < MH - 1 && c > 0 && c <= 7) {
+                // Keep center corridor, ghost house & pac home clear
+                const isProtected = (r >= 6 && r <= 8 && c >= 4 && c <= 10) ||
+                                    (r >= 10 && r <= 12 && c >= 6 && c <= 8) ||
+                                    (r <= 2 && c <= 2) || (r >= 12 && c <= 2);
+                if (!isProtected) {
+                  walls[r][c] = 1;
+                  walls[r][MW - 1 - c] = 1;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Central divider segments above and below ghost home
+      if (Math.random() < 0.6) {
+        walls[2][7] = 1; walls[3][7] = 1;
+      }
+      if (Math.random() < 0.6) {
+        walls[12][7] = 1; walls[13][7] = 1;
+      }
+
+      // Clear Ghost Home Area & Pacman Home
+      GHOST_HOMES.forEach(function (g) { walls[g.r][g.c] = 0; });
+      walls[PAC_HOME.r][PAC_HOME.c] = 0;
+      // Guarantee clear passage around pacman and ghost house
+      for (let c = 4; c <= 10; c++) { walls[6][c] = 0; walls[8][c] = 0; }
+      for (let r = 10; r <= 12; r++) { walls[r][7] = 0; }
+
+      // Clear power pellets
+      PELLET_CELLS.forEach(function (p) { walls[p.r][p.c] = 0; });
+
+      // Add side escape tunnels if open
+      if (Math.random() < 0.5) {
+        walls[7][0] = 0; walls[7][MW - 1] = 0; // classic side tunnels!
+      }
+
+      valid = checkConnectivity(walls);
+    }
+
+    // Place dots and pellets in all reachable valid cells
+    for (let r = 0; r < MH; r++) {
+      for (let c = 0; c < MW; c++) {
+        if (walls[r][c]) continue;
+        const isPellet = PELLET_CELLS.some(function (p) { return p.c === c && p.r === r; });
+        const isSpecial = (c === PAC_HOME.c && r === PAC_HOME.r) ||
+          GHOST_HOMES.some(function (g) { return g.c === c && g.r === r; }) ||
+          isPellet;
+        if (isPellet) {
+          pellets[r][c] = true;
+        } else if (!isSpecial) {
+          dots[r][c] = true;
+          totalDots++;
+        }
+      }
+    }
+  }
+  let tile = 40, ox = 0, oy = 0;
+  function layout() { tile = Math.floor(Math.min(W / MW, H / MH)); ox = (W - MW * tile) / 2; oy = (H - MH * tile) / 2; }
+  function canMove(c, r, dx, dy) {
+    let nc = c + dx, nr = r + dy;
+    // Tunnel wrap around horizontal edges
+    if (nr >= 0 && nr < MH && (nc < 0 || nc >= MW)) {
+      // Check if this row has an open tunnel at the borders
+      return !walls[nr][0] && !walls[nr][MW - 1];
+    }
+    if (nc < 0 || nc >= MW || nr < 0 || nr >= MH) return false;
+    return !walls[nr][nc];
+  }
+  function tileCenter(c, r) { return { x: ox + c * tile + tile / 2, y: oy + r * tile + tile / 2 }; }
+  function entPx(e) {
+    // Handle tunnel wrapping coordinates smoothly
+    let fc = e.fromC, tc = e.toC;
+    if (fc === 0 && tc === -1) {
+      const a = tileCenter(0, e.fromR);
+      return { x: a.x - tile * e.p, y: a.y };
+    }
+    if (fc === MW - 1 && tc === MW) {
+      const a = tileCenter(MW - 1, e.fromR);
+      return { x: a.x + tile * e.p, y: a.y };
+    }
+    const a = tileCenter(e.fromC, e.fromR), b = tileCenter(e.toC, e.toR);
+    return { x: a.x + (b.x - a.x) * e.p, y: a.y + (b.y - a.y) * e.p };
+  }
+
+  // ---- state ----
+  let state = "menu";
+  let score = 0, lives = 3, correct = 0, combo = 0, speedLevel = 0;
+  let dotsLeft = 0, wordsLeft = 0, wordQueue = [], frightenedTimer = 0, gameTime = 0;
+  let pac = null, ghosts = [], particles = [], flashRect = null;
+  let quizGhost = null, awaitingAnswer = false, lastEduIndex = -1;
+  const SPEED_THR = [120, 300, 520, 800, 1100];
+  const HS_KEY = "vocabarcade.pacman.highscore";
+  let highscore = 0, lastWin = false;
+  try { highscore = parseInt(localStorage.getItem(HS_KEY) || "0", 10) || 0; } catch (_) {}
+  function saveHighscore(s) { try { localStorage.setItem(HS_KEY, String(s)); } catch (_) {} }
+
+  function emitHud() { E.send(E.MSG.HUD, { score, lives, correct, combo, level: speedLevel }); }
+  function flash(color, a) { flashRect = { color, a }; }
+  function addScore(p) {
+    score += p;
+    if (speedLevel < SPEED_THR.length && score >= SPEED_THR[speedLevel]) { speedLevel++; flash("#8a3ffc", 0.26); }
+    emitHud();
+  }
+
+  // ---- input ----
+  function setDir(dx, dy) { if (pac) pac.nextDir = { x: dx, y: dy }; }
+  window.addEventListener("keydown", function (e) {
+    const k = e.key.toLowerCase();
+    const map = { arrowleft: [-1, 0], a: [-1, 0], arrowright: [1, 0], d: [1, 0], arrowup: [0, -1], w: [0, -1], arrowdown: [0, 1], s: [0, 1] };
+    if (map[k]) { e.preventDefault(); setDir(map[k][0], map[k][1]); }
+    if (["arrowleft", "arrowright", "arrowup", "arrowdown", " "].includes(k)) e.preventDefault();
+    if (state === "menu" || state === "over") startGame();
+  });
+  window.addEventListener("pointerdown", function (e) {
+    if (state === "menu" || state === "over") startGame();
+  });
+
+  E.listen(function (msg) {
+    if (msg.type === E.MSG.START) startGame();
+    else if (msg.type === E.MSG.PAUSE) { if (state === "playing") state = "paused"; }
+    else if (msg.type === E.MSG.RESUME) { if (state === "paused") state = "playing"; }
+    else if (msg.type === E.MSG.QUIT) state = "menu";
+    else if (msg.type === E.MSG.ANSWER) onAnswer(msg.correct);
+  });
+
+  function makeEntity(home, isPac) {
+    return {
+      col: home.c, row: home.r, fromC: home.c, fromR: home.r, toC: home.c, toR: home.r, p: 1,
+      dir: { x: 0, y: 0 }, nextDir: { x: 0, y: 0 }, isPac: !!isPac, isGhost: !isPac,
+      homeC: home.c, homeR: home.r, frightened: false, edu: false, word: "", correct: "", options: [],
+      invuln: 0,
+    };
+  }
+
+  function startGame() {
+    VOCAB = E.shuffle(launch.vocab || []);   // fresh question order on every run / restart
+    buildMaze(); layout();
+    score = 0; lives = 3; correct = 0; combo = 0; speedLevel = 0;
+    wordQueue = E.shuffle(VOCAB.slice()); wordsLeft = wordQueue.length;
+    lastEduIndex = -1;
+    dotsLeft = totalDots; frightenedTimer = 0;
+    pac = makeEntity(PAC_HOME, true); pac.invuln = 1.0;
+    ghosts = GHOST_HOMES.map(function (h, i) {
+      const g = makeEntity(h, false); g.color = ["#ff5964", "#4dd2ff", "#ff9f1c"][i % 3]; return g;
+    });
+    particles = []; flashRect = null; quizGhost = null; awaitingAnswer = false;
+    refreshEdu();
+    state = "playing"; emitHud();
+  }
+
+  function refreshEdu() {
+    ghosts.forEach(function (g) { g.edu = false; });
+    if (wordQueue.length > 0) {
+      const e = wordQueue[0];
+      // pick a word-carrier ghost that is NOT the same one as last time
+      let idx;
+      if (ghosts.length === 1) idx = 0;
+      else { do { idx = Math.floor(Math.random() * ghosts.length); } while (idx === lastEduIndex); }
+      lastEduIndex = idx;
+      const g = ghosts[idx];
+      g.edu = true; g.word = e.from; g.correct = e.correct; g.options = E.buildOptions(e).options;
+    }
+  }
+
+  function respawnGhost(g) {
+    g.col = g.homeC; g.row = g.homeR; g.fromC = g.homeC; g.fromR = g.homeR; g.toC = g.homeC; g.toR = g.homeR;
+    g.dir = { x: 0, y: 0 }; g.nextDir = { x: 0, y: 0 }; g.p = 1; g.frightened = false; g.invuln = 0;
+  }
+  function respawnAll() {
+    pac = makeEntity(PAC_HOME, true); pac.invuln = 1.5;
+    ghosts.forEach(function (g) { respawnGhost(g); });
+    frightenedTimer = 0;
+  }
+
+  function spawnParticles(x, y, color, count) {
+    count = count || 12;
+    for (let i = 0; i < count; i++) {
+      const ang = Math.random() * Math.PI * 2, sp = 40 + Math.random() * 130;
+      particles.push({ x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 20, life: 0.45, age: 0, color, size: 2 + Math.random() * 3 });
+    }
+  }
+
+  function gameOver(win) {
+    state = "over"; lastWin = win;
+    if (score > highscore) { highscore = score; saveHighscore(highscore); }
+    E.send(E.MSG.RESULT, { win, score, correct, total: totalDots });
+    E.send(E.MSG.EVENT, { name: win ? "win" : "lose" });
+    flash(win ? "#eab308" : "#ef4444", 0.5);
+  }
+
+  function onAnswer(isCorrect) {
+    awaitingAnswer = false;
+    const g = quizGhost; quizGhost = null;
+    if (!g) { state = "playing"; return; }
+    if (isCorrect) {
+      correct++; combo++; addScore(20);
+      if (combo >= 2) addScore((combo - 1) * 10);
+      flash("#22c55e", 0.3); E.send(E.MSG.EVENT, { name: "correct" });
+      wordQueue.shift(); wordsLeft = wordQueue.length;
+      g.edu = false; respawnGhost(g);
+      refreshEdu(); emitHud();
+      if (dotsLeft <= 0 && wordsLeft <= 0) { gameOver(true); return; }
+      state = "playing";              // resume (freeze-fix)
+    } else {
+      combo = 0; lives--; flash("#ef4444", 0.42); E.send(E.MSG.EVENT, { name: "wrong" });
+      respawnGhost(g); emitHud();
+      if (lives <= 0) { gameOver(false); return; }
+      refreshEdu(); state = "playing";
+    }
+  }
+
+  function stepEntity(e, dt) {
+    if (e.p < 1) {
+      e.p += (e.isPac ? 130 : (e.frightened ? 65 : 105 + speedLevel * 6)) * dt / tile;
+      if (e.p >= 1) e.p = 1;
+      return;
+    }
+    // Wrap around columns when exiting screen
+    if (e.toC < 0) { e.toC = MW - 1; e.fromC = MW - 1; }
+    else if (e.toC >= MW) { e.toC = 0; e.fromC = 0; }
+
+    e.col = e.toC; e.row = e.toR;
+    if (e.isPac) eatAt(e.col, e.row);
+    // choose direction
+    if ((e.nextDir.x || e.nextDir.y) && canMove(e.col, e.row, e.nextDir.x, e.nextDir.y)) e.dir = e.nextDir;
+    else if (!(e.dir.x || e.dir.y) || !canMove(e.col, e.row, e.dir.x, e.dir.y)) e.dir = { x: 0, y: 0 };
+    if (e.dir.x || e.dir.y) {
+      if (canMove(e.col, e.row, e.dir.x, e.dir.y)) {
+        e.fromC = e.col; e.fromR = e.row; e.toC = e.col + e.dir.x; e.toR = e.row + e.dir.y; e.p = 0;
+      } else { e.dir = { x: 0, y: 0 }; e.p = 1; }
+    } else { e.p = 1; }
+  }
+
+  function eatAt(c, r) {
+    if (dots[r][c]) { dots[r][c] = false; dotsLeft--; addScore(10); Sfx.blip(); if (dotsLeft <= 0 && wordsLeft <= 0) gameOver(true); }
+    else if (pellets[r][c]) {
+      pellets[r][c] = false; addScore(50); frightenedTimer = 7;
+      ghosts.forEach(function (g) { g.frightened = true; });
+      Sfx.pickup();
+    }
+  }
+
+  function ghostChooseDir(g) {
+    const dirs = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
+    const rev = { x: -g.dir.x, y: -g.dir.y };
+    const opts = [];
+    for (const d of dirs) { if (canMove(g.col, g.row, d.x, d.y) && !(d.x === rev.x && d.y === rev.y)) opts.push(d); }
+    if (opts.length === 0) return canMove(g.col, g.row, rev.x, rev.y) ? rev : { x: 0, y: 0 };
+    if (g.frightened) return opts[Math.floor(Math.random() * opts.length)];
+    let best = opts[0], bd = 1e9;
+    for (const d of opts) {
+      const nc = g.col + d.x, nr = g.row + d.y, dist = (nc - pac.col) * (nc - pac.col) + (nr - pac.row) * (nr - pac.row);
+      if (dist < bd) { bd = dist; best = d; }
+    }
+    if (Math.random() < 0.2) return opts[Math.floor(Math.random() * opts.length)];
+    return best;
+  }
+
+  function triggerQuiz(g) { state = "paused"; awaitingAnswer = true; quizGhost = g; E.send(E.MSG.ASK, { word: g.word, correct: g.correct, options: g.options }); Sfx.edu(); }
+  function eatGhost(g) { addScore(200); spawnParticles(entPx(g).x, entPx(g).y, "#9aa6c4"); Sfx.explode(); respawnGhost(g); }
+  function pacDeath() {
+    lives--; combo = 0; flash("#ef4444", 0.42); emitHud();
+    Sfx.tone(300, 80, 0.5, "sawtooth", 0.07);
+    if (lives <= 0) { gameOver(false); return; }
+    respawnAll();
+  }
+
+  function update(dt) {
+    if (state !== "playing") return;
+    gameTime += dt;
+    if (frightenedTimer > 0) { frightenedTimer -= dt; if (frightenedTimer <= 0) ghosts.forEach(function (g) { g.frightened = false; }); }
+    if (pac.invuln > 0) pac.invuln -= dt;
+
+    if (pac.p >= 1) { /* nextDir already set by input */ }
+    stepEntity(pac, dt);
+
+    ghosts.forEach(function (g) { if (g.p >= 1) g.nextDir = ghostChooseDir(g); stepEntity(g, dt); });
+
+    // collisions
+    if (pac.invuln <= 0) {
+      const pp = entPx(pac);
+      for (const g of ghosts) {
+        const gp = entPx(g);
+        if (Math.hypot(pp.x - gp.x, pp.y - gp.y) < tile * 0.5) {
+          if (g.edu) triggerQuiz(g);
+          else if (g.frightened) eatGhost(g);
+          else pacDeath();
+          if (state !== "playing") return;
+        }
+      }
+    }
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i]; p.age += dt; p.vy += 200 * dt; p.x += p.vx * dt; p.y += p.vy * dt;
+      if (p.age >= p.life) particles.splice(i, 1);
+    }
+  }
+
+  // ---- drawing ----
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = "#0c1020"; ctx.fillRect(0, 0, W, H);
+
+    // subtle maze background tint
+    ctx.fillStyle = "#070b16";
+    ctx.fillRect(ox, oy, MW * tile, MH * tile);
+
+    // walls with neon retro glow
+    for (let r = 0; r < MH; r++) for (let c = 0; c < MW; c++) {
+      if (!walls[r][c]) continue;
+      const x = ox + c * tile, y = oy + r * tile;
+      // outer block
+      ctx.fillStyle = "#1e295d";
+      ctx.fillRect(x + 1, y + 1, tile - 2, tile - 2);
+      // inner core
+      ctx.fillStyle = "#2d3f8f";
+      ctx.fillRect(x + 3, y + 3, tile - 6, tile - 6);
+      // neon edge stroke
+      ctx.strokeStyle = "rgba(77, 120, 255, 0.45)";
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(x + 2, y + 2, tile - 4, tile - 4);
+    }
+    // dots + pellets
+    for (let r = 0; r < MH; r++) for (let c = 0; c < MW; c++) {
+      const ctr = tileCenter(c, r);
+      if (dots[r][c]) {
+        ctx.fillStyle = "#ffeaae";
+        ctx.beginPath(); ctx.arc(ctr.x, ctr.y, 3.5, 0, Math.PI * 2); ctx.fill();
+      } else if (pellets[r][c]) {
+        const pr = 6 + (Math.sin(gameTime * 7) + 1) * 2;
+        ctx.shadowColor = "#ffe066"; ctx.shadowBlur = 12;
+        ctx.fillStyle = "#fff4cc";
+        ctx.beginPath(); ctx.arc(ctr.x, ctr.y, pr, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+    }
+    // ghosts
+    ghosts.forEach(function (g) {
+      const gp = entPx(g); const rad = tile * 0.44;
+      drawGhost(gp.x, gp.y, rad, g.frightened ? "#3b6dff" : g.color, g);
+    });
+    // pac
+    if (pac) {
+      const pp = entPx(pac); const rad = tile * 0.46;
+      ctx.shadowColor = ACCENT; ctx.shadowBlur = 10;
+      ctx.fillStyle = ACCENT;
+      const ang = pac.dir.x === 1 ? 0 : pac.dir.x === -1 ? Math.PI : pac.dir.y === 1 ? Math.PI / 2 : pac.dir.y === -1 ? -Math.PI / 2 : 0;
+      const open = (Math.sin(gameTime * 12) * 0.5 + 0.5) * 0.32;
+      ctx.beginPath();
+      if (pac.dir.x === 0 && pac.dir.y === 0) ctx.arc(pp.x, pp.y, rad, 0, Math.PI * 2);
+      else { ctx.moveTo(pp.x, pp.y); ctx.arc(pp.x, pp.y, rad, ang + open, ang + Math.PI * 2 - open); ctx.closePath(); }
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+    // particles
+    for (const p of particles) { ctx.globalAlpha = Math.max(0, 1 - p.age / p.life); ctx.fillStyle = p.color; ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size); }
+    ctx.globalAlpha = 1;
+    if (flashRect && flashRect.a > 0.01) { ctx.fillStyle = hexA(flashRect.color, flashRect.a); ctx.fillRect(0, 0, W, H); flashRect.a *= 0.92; }
+    // HUD
+    ctx.shadowColor = "rgba(0,0,0,0.6)"; ctx.shadowBlur = 4;
+    ctx.fillStyle = "rgba(255,255,255,0.95)"; ctx.font = "bold 17px system-ui";
+    ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillText("Score " + score, 14, 12);
+    ctx.textAlign = "right"; ctx.fillText("♥ " + lives, W - 14, 12);
+    ctx.fillStyle = "#bfe6a0"; ctx.textAlign = "center"; ctx.fillText("✓ " + correct + "  " + FROM, W / 2, 12);
+    if (combo >= 2) { ctx.fillStyle = "#ffcf33"; ctx.fillText("🔥 x" + combo, W / 2, 32); }
+    if (wordsLeft > 0) { ctx.fillStyle = "#ffd56b"; ctx.fillText("📚 words left: " + wordsLeft, W / 2, 54); }
+    ctx.shadowBlur = 0;
+
+    if (state === "menu") {
+      drawScreen("🟡 Vocab Pac-Man",
+        ["Eat the dots — answer the ghosts' words!",
+         highscore > 0 ? "🏆 Best Score: " + highscore : "No high score yet — be the first!",
+         "Swipe on screen or use the D-pad to move",
+         "Arrows / WASD on keyboard also work",
+         "❓ golden ghosts quiz you · clear every dot AND answer all words to WIN"],
+        "Tap the screen or press any key to start", "#fcc419");
+    } else if (state === "over") {
+      const newHs = score >= highscore && score > 0;
+      drawScreen(lastWin ? "🏆 YOU WIN!" : "💀 GAME OVER",
+        [(lastWin ? "Maze cleared and words learned!" : "Caught by a ghost!"),
+         "📖 Words correct: " + correct,
+         "Final Score: " + score + (newHs ? "   🏆 NEW!" : ""),
+         highscore > 0 ? "🏆 Best: " + highscore : ""].filter(Boolean),
+        "↺ Play again  (tap screen or press any key)", lastWin ? "#ffe08a" : "#ff8a8a");
+    }
+  }
+
+  function drawGhost(x, y, rad, color, g) {
+    if (g.edu) {
+      // Golden outer halo so children can easily recognize the target ghost
+      const pulse = Math.sin(gameTime * 7);
+      ctx.shadowColor = "#ffd700"; ctx.shadowBlur = 18 + pulse * 6;
+    }
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y - rad * 0.1, rad, Math.PI, 0);
+    ctx.lineTo(x + rad, y + rad * 0.8);
+    const feet = 3; const step = (rad * 2) / feet;
+    for (let i = 0; i < feet; i++) { const fx = x + rad - i * step; ctx.lineTo(fx - step / 2, y + rad * 0.8 - rad * 0.25); ctx.lineTo(fx - step, y + rad * 0.8); }
+    ctx.closePath(); ctx.fill();
+    ctx.shadowBlur = 0;
+    // eyes
+    if (g.frightened) {
+      ctx.fillStyle = "#fff"; ctx.font = "bold " + Math.round(rad * 0.7) + "px system-ui"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText("✕", x, y);
+    } else {
+      const ex = g.dir.x * rad * 0.18, ey = g.dir.y * rad * 0.18;
+      ctx.fillStyle = "#fff";
+      ctx.beginPath(); ctx.arc(x - rad * 0.32, y - rad * 0.1, rad * 0.22, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + rad * 0.32, y - rad * 0.1, rad * 0.22, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#1a1a2e";
+      ctx.beginPath(); ctx.arc(x - rad * 0.32 + ex, y - rad * 0.1 + ey, rad * 0.1, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + rad * 0.32 + ex, y - rad * 0.1 + ey, rad * 0.1, 0, Math.PI * 2); ctx.fill();
+    }
+    if (g.edu) {
+      const pr = rad * 0.54 + (Math.sin(gameTime * 6) + 1) * 1.5;
+      ctx.fillStyle = "#ffd700"; ctx.beginPath(); ctx.arc(x, y - rad * 0.1, pr, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#1a1200"; ctx.font = "bold " + Math.round(rad * 0.75) + "px system-ui"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("?", x, y - rad * 0.05);
+    }
+  }
+
+  function drawScreen(title, lines, footer, titleColor) {
+    ctx.fillStyle = "rgba(3,5,12,0.72)"; ctx.fillRect(0, 0, W, H);
+    const pw = 480, ph = 300, px = (W - pw) / 2, py = (H - ph) / 2;
+    roundRect(px, py, pw, ph, 16);
+    ctx.fillStyle = "rgba(13,17,28,0.97)"; ctx.fill();
+    ctx.lineWidth = 3; ctx.strokeStyle = ACCENT; ctx.stroke();
+    ctx.textAlign = "center";
+    ctx.fillStyle = titleColor || ACCENT; ctx.font = "bold 33px system-ui, sans-serif"; ctx.fillText(title, W / 2, py + 56);
+    ctx.fillStyle = "#dfe6ff"; ctx.font = "15px system-ui, sans-serif";
+    let y = py + 108;
+    for (let i = 0; i < lines.length; i++) { ctx.fillText(lines[i], W / 2, y); y += 28; }
+    ctx.fillStyle = ACCENT; ctx.font = "bold 17px system-ui, sans-serif"; ctx.fillText(footer, W / 2, py + ph - 34);
+    ctx.textAlign = "left";
+  }
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath(); ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+  function hexA(hex, a) {
+    const h = hex.replace("#", "");
+    return "rgba(" + parseInt(h.substr(0, 2), 16) + "," + parseInt(h.substr(2, 2), 16) + "," + parseInt(h.substr(4, 2), 16) + "," + a + ")";
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    let dt = (now - last) / 1000; last = now;
+    if (dt > 0.05) dt = 0.05;
+    update(dt); draw(); requestAnimationFrame(frame);
+  }
+  E.send(E.MSG.READY);
+
+  // build the maze up-front so the menu/over screens can draw it
+  buildMaze(); layout();
+
+  // ── on-screen touch controls: centered bottom D-pad + swipe gestures ──
+  (function mountPacControls() {
+    // ---- SWIPE GESTURE on canvas ----
+    let swipeStartX = null, swipeStartY = null;
+    const SWIPE_THRESHOLD = 20; // px
+    canvas.addEventListener("touchstart", function (e) {
+      if (e.touches.length === 1) {
+        swipeStartX = e.touches[0].clientX;
+        swipeStartY = e.touches[0].clientY;
+      }
+    }, { passive: true });
+    canvas.addEventListener("touchmove", function (e) {
+      if (swipeStartX === null || e.touches.length !== 1) return;
+      const dx = e.touches[0].clientX - swipeStartX;
+      const dy = e.touches[0].clientY - swipeStartY;
+      if (Math.abs(dx) < SWIPE_THRESHOLD && Math.abs(dy) < SWIPE_THRESHOLD) return;
+      if (Math.abs(dx) > Math.abs(dy)) {
+        setDir(dx > 0 ? 1 : -1, 0);
+      } else {
+        setDir(0, dy > 0 ? 1 : -1);
+      }
+      swipeStartX = e.touches[0].clientX;
+      swipeStartY = e.touches[0].clientY;
+      e.preventDefault();
+    }, { passive: false });
+    canvas.addEventListener("touchend", function () { swipeStartX = null; swipeStartY = null; }, { passive: true });
+
+    // ---- D-PAD BUTTONS ----
+    const css =
+      ".pac-tc{position:fixed;left:50%;transform:translateX(-50%);bottom:10px;z-index:50;display:grid;gap:6px;" +
+      "grid-template-columns:repeat(3,72px);grid-template-rows:repeat(2,64px);" +
+      "touch-action:none;user-select:none;-webkit-user-select:none;pointer-events:none;opacity:0.80;}" +
+      ".pac-tc .tc{appearance:none;border:0;cursor:pointer;color:#fff;font-weight:700;" +
+      "font-size:28px;line-height:1;border-radius:16px;background:rgba(40,48,82,0.92);" +
+      "box-shadow:0 4px 0 rgba(0,0,0,0.4),inset 0 1px 0 rgba(255,255,255,0.12);" +
+      "border:2px solid rgba(255,255,255,0.15);touch-action:none;user-select:none;-webkit-user-select:none;" +
+      "pointer-events:auto;transition:transform .04s ease,background .1s ease;}" +
+      ".pac-tc .tc:active{transform:translateY(3px);background:rgba(252,196,25,0.95);color:#1a1200;box-shadow:0 1px 0 rgba(0,0,0,0.4);}" +
+      ".pac-tc .sp{visibility:hidden;pointer-events:none;}";
+    const st = document.createElement("style"); st.textContent = css; document.head.appendChild(st);
+    const wrap = document.createElement("div"); wrap.className = "pac-tc";
+    const mk = function (label, x, y) {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "tc"; b.innerHTML = label;
+      let held = false;
+      const press = function (e) {
+        if (held) return; held = true;
+        if (e.pointerId != null && b.setPointerCapture) { try { b.setPointerCapture(e.pointerId); } catch (_) {} }
+        e.preventDefault(); e.stopPropagation(); setDir(x, y);
+        if (state === "menu" || state === "over") startGame();
+      };
+      const release = function (e) {
+        if (!held) return; held = false;
+        if (e && e.pointerId != null && b.releasePointerCapture) { try { b.releasePointerCapture(e.pointerId); } catch (_) {} }
+      };
+      b.addEventListener("pointerdown", press);
+      b.addEventListener("pointerup", release);
+      b.addEventListener("pointercancel", release);
+      b.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+      return b;
+    };
+    // Row 1: left, up, right
+    const left = mk("◀", -1, 0);
+    const up = mk("▲", 0, -1);
+    const right = mk("▶", 1, 0);
+    // Row 2: spacer, down, spacer
+    const sp1 = document.createElement("span"); sp1.className = "tc sp";
+    const down = mk("▼", 0, 1);
+    const sp2 = document.createElement("span"); sp2.className = "tc sp";
+    wrap.appendChild(left); wrap.appendChild(up); wrap.appendChild(right);
+    wrap.appendChild(sp1); wrap.appendChild(down); wrap.appendChild(sp2);
+    document.body.appendChild(wrap);
+  })();
+
+  // ── test seam (used only by test_pacman.js; inert in normal play) ──
+  if (window.__PAC_TEST__) {
+    window.__pac = {
+      getState: function () { return state; },
+      lives: function () { return lives; },
+      hitEdu: function (isCorrect) {
+        if (wordsLeft <= 0 || ghosts.length === 0) return state;
+        const g = ghosts[0]; g.edu = true; g.word = wordQueue[0] ? wordQueue[0].from : "";
+        g.correct = wordQueue[0] ? wordQueue[0].correct : ""; g.options = wordQueue[0] ? E.buildOptions(wordQueue[0]).options : [];
+        awaitingAnswer = true; quizGhost = g; state = "paused";
+        onAnswer(isCorrect);
+        return state;
+      },
+      eduIndex: function () {
+        for (let i = 0; i < ghosts.length; i++) if (ghosts[i].edu) return i;
+        return -1;
+      },
+      forceCorrect: function () {
+        let i = -1;
+        for (let k = 0; k < ghosts.length; k++) if (ghosts[k].edu) { i = k; break; }
+        quizGhost = i >= 0 ? ghosts[i] : null;
+        onAnswer(true);
+        return state;
+      },
+    };
+  }
+
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

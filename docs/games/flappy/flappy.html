@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Flappy Words</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0a0f1f; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  #c { display: block; width: 100vmin; height: 75vmin; max-width: 100vw; max-height: 100vh;
+       touch-action: none; box-shadow: 0 0 60px rgba(0,0,0,0.6); }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script src="../../js/engine-common.js"></script>
+<script>
+(function () {
+  "use strict";
+  const E = window.VocabEngine;
+
+  const launch = E.readLaunch() || { vocab: [], fromLang: "Word", toLang: "Meaning", accent: "#ffd43b" };
+  const Sfx = E.sfx({ enabled: launch.sound !== false });
+  let VOCAB = E.shuffle(launch.vocab || []);
+  const FROM = launch.fromLang || "Word";
+  const TO = launch.toLang || "Meaning";
+  const ACCENT = launch.accent || "#ffd43b";
+
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+  let W = 800, H = 600;
+  function resize() {
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const ratio = 4 / 3;
+    let w = vw, h = vw / ratio;
+    if (h > vh) { h = vh; w = vh * ratio; }
+    canvas.style.width = w + "px"; canvas.style.height = h + "px";
+    canvas.width = W; canvas.height = H;
+  }
+  window.addEventListener("resize", resize); resize();
+
+  // ---- state ----
+  let state = "menu";
+  let score = 0, lives = 3, correct = 0, combo = 0, speedLevel = 0;
+  let totalWords = 0;
+  let bird = null, pipes = [], orbs = [], particles = [], flashRect = null;
+  let wordsLeft = 0, wordQueue = [];
+  let quizOrb = null, awaitingAnswer = false;
+  let spawnTimer = 0, pipeCount = 0;
+  const SPEED_THR = [120, 300, 520, 800, 1100];
+  const HS_KEY = "vocabarcade.flappy.highscore";
+  let highscore = 0, lastWin = false;
+  try { highscore = parseInt(localStorage.getItem(HS_KEY) || "0", 10) || 0; } catch (_) {}
+  function saveHighscore(s) { try { localStorage.setItem(HS_KEY, String(s)); } catch (_) {} }
+
+  function emitHud() { E.send(E.MSG.HUD, { score, lives, correct, combo, level: speedLevel }); }
+  function flash(color, a) { flashRect = { color, a }; }
+  function addScore(p) {
+    score += p;
+    if (speedLevel < SPEED_THR.length && score >= SPEED_THR[speedLevel]) {
+      speedLevel++; flash("#8a3ffc", 0.26);
+    }
+    emitHud();
+  }
+
+  // ---- input ----
+  function flap() {
+    if (!bird) return;
+    if (state === "menu" || state === "over") { startGame(); return; }
+    if (state === "paused") return;
+    bird.vy = -300; bird.rot = -0.5;
+    Sfx.flap();
+  }
+  window.addEventListener("keydown", function (e) {
+    const k = e.key.toLowerCase();
+    if (["arrowup", " ", "w"].includes(k)) { e.preventDefault(); flap(); }
+    if (state === "menu" || state === "over") startGame();
+  });
+  window.addEventListener("pointerdown", function (e) {
+    if (state === "menu" || state === "over") { startGame(); }
+    else if (state === "playing") { flap(); }
+  });
+
+  E.listen(function (msg) {
+    if (msg.type === E.MSG.START) startGame();
+    else if (msg.type === E.MSG.PAUSE) { if (state === "playing") state = "paused"; }
+    else if (msg.type === E.MSG.RESUME) { if (state === "paused") state = "playing"; }
+    else if (msg.type === E.MSG.QUIT) state = "menu";
+    else if (msg.type === E.MSG.ANSWER) onAnswer(msg.correct);
+  });
+
+  function startGame() {
+    VOCAB = E.shuffle(launch.vocab || []);   // fresh question order on every run / restart
+    score = 0; lives = 3; correct = 0; combo = 0; speedLevel = 0;
+    wordQueue = E.shuffle(VOCAB.slice()); wordsLeft = wordQueue.length; totalWords = wordQueue.length;
+    bird = { x: W * 0.28, y: H * 0.45, vy: 0, r: 14, rot: 0, invuln: 0, alive: true };
+    pipes = []; orbs = []; particles = []; flashRect = null;
+    quizOrb = null; awaitingAnswer = false; spawnTimer = 0; pipeCount = 0;
+    state = "playing"; emitHud();
+  }
+
+  function spawnPipe() {
+    pipeCount++;
+    const gapH = 175 - speedLevel * 8;
+    const margin = 90;
+    const gapY = margin + Math.random() * (H - margin * 2 - gapH);
+    const x = W + 50;
+    pipes.push({ x, w: 58, gapY, gapH, scored: false });
+    // collectible orb in the gap center; every 3rd pipe spawns an educational orb
+    let edu = false, word = "", correctW = "", options = [];
+    if (pipeCount % 3 === 0 && wordQueue.length > 0) {
+      const e = wordQueue[0];
+      edu = true; word = e.from; correctW = e.correct; options = E.buildOptions(e).options;
+    }
+    orbs.push({ x: x + 60, y: gapY + gapH / 2, r: 13, edu, word, correct: correctW, options, taken: false, phase: Math.random() * 6.28 });
+  }
+
+  function spawnParticles(x, y, color, count) {
+    count = count || 12;
+    for (let i = 0; i < count; i++) {
+      const ang = Math.random() * Math.PI * 2, sp = 40 + Math.random() * 130;
+      particles.push({ x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 20, life: 0.45, age: 0, color, size: 2 + Math.random() * 3 });
+    }
+  }
+
+  function loseLife() {
+    lives--; flash("#ef4444", 0.42); emitHud();
+    Sfx.hit();
+    if (lives <= 0) { gameOver(false); }
+  }
+
+  function onAnswer(isCorrect) {
+    awaitingAnswer = false;
+    const o = quizOrb; quizOrb = null;
+    if (!o) { state = "playing"; return; }
+    if (isCorrect) {
+      correct++; combo++; addScore(20);
+      if (combo >= 2) addScore((combo - 1) * 10);
+      flash("#22c55e", 0.3);
+      E.send(E.MSG.EVENT, { name: "correct" });
+      wordQueue.shift(); wordsLeft = wordQueue.length;
+      emitHud();
+      if (wordsLeft <= 0) { gameOver(true); return; }
+      state = "playing";              // resume (freeze-fix)
+    } else {
+      combo = 0; flash("#ef4444", 0.42);
+      E.send(E.MSG.EVENT, { name: "wrong" });
+      loseLife();
+      // orb stays in place (untaken) so the player can retry the word on the next pass
+      if (state !== "over") state = "playing";
+    }
+  }
+
+  function gameOver(win) {
+    state = "over"; lastWin = win; bird.alive = false;
+    if (score > highscore) { highscore = score; saveHighscore(highscore); }
+    E.send(E.MSG.RESULT, { win, score, correct, total: totalWords });
+    E.send(E.MSG.EVENT, { name: win ? "win" : "lose" });
+    flash(win ? "#eab308" : "#ef4444", 0.5);
+  }
+
+  function update(dt) {
+    if (state !== "playing") return;
+    const BASE = 165;
+    const sp = BASE + speedLevel * 26;
+
+    if (bird.invuln > 0) bird.invuln -= dt;
+    bird.vy += 880 * dt;
+    bird.y += bird.vy * dt;
+    bird.rot += (bird.vy / 600) * dt * 4;
+    if (bird.rot > 1.4) bird.rot = 1.4;
+    if (bird.rot < -0.6) bird.rot = -0.6;
+
+    // ceiling / floor
+    if (bird.y < bird.r) { bird.y = bird.r; bird.vy = 40; if (bird.invuln <= 0) { loseLife(); bird.invuln = 1.4; } }
+    if (bird.y > H - bird.r) { bird.y = H - bird.r; bird.vy = -120; if (bird.invuln <= 0) { loseLife(); bird.invuln = 1.4; } }
+    if (state !== "playing") return;
+
+    spawnTimer += dt;
+    if (spawnTimer >= 1.55 - speedLevel * 0.06) { spawnTimer = 0; spawnPipe(); }
+
+    // pipes
+    for (const p of pipes) {
+      p.x -= sp * dt;
+      if (!p.scored && p.x + p.w / 2 < bird.x) { p.scored = true; addScore(10); Sfx.pickup(); }
+      // collision
+      if (bird.invuln <= 0) {
+        if (Math.abs(bird.x - p.x) < p.w / 2 + bird.r * 0.7) {
+          if (bird.y < p.gapY || bird.y > p.gapY + p.gapH) { loseLife(); bird.invuln = 1.4; bird.vy = -180; }
+        }
+      }
+      if (state !== "playing") return;
+    }
+    pipes = pipes.filter(function (p) { return p.x > -80; });
+
+    // orbs
+    for (const o of orbs) {
+      o.x -= sp * dt; o.phase += 0.08;
+      if (o.taken) continue;
+      if (Math.hypot(bird.x - o.x, bird.y - o.y) < bird.r + o.r) {
+        o.taken = true;
+        if (o.edu) {
+          awaitingAnswer = true; quizOrb = o; state = "paused";
+          E.send(E.MSG.ASK, { word: o.word, correct: o.correct, options: o.options });
+          Sfx.edu();
+        } else {
+          addScore(5); spawnParticles(o.x, o.y, "#ffe08a", 8);
+          Sfx.pickup();
+        }
+      }
+    }
+    orbs = orbs.filter(function (o) { return o.x > -60 && !o.taken; });
+
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.age += dt; p.vy += 200 * dt; p.x += p.vx * dt; p.y += p.vy * dt;
+      if (p.age >= p.life) particles.splice(i, 1);
+    }
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    // sky gradient
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, "#13315c"); g.addColorStop(1, "#1d4e89");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    // distant clouds
+    ctx.fillStyle = "rgba(255,255,255,0.06)";
+    for (let i = 0; i < 5; i++) { ctx.beginPath(); ctx.ellipse((i * 190 + 60) % W, 80 + (i % 2) * 40, 46, 18, 0, 0, Math.PI * 2); ctx.fill(); }
+
+    // pipes
+    for (const p of pipes) {
+      ctx.fillStyle = "#2f9e44";
+      ctx.fillRect(p.x - p.w / 2, 0, p.w, p.gapY);
+      ctx.fillRect(p.x - p.w / 2, p.gapY + p.gapH, p.w, H - (p.gapY + p.gapH));
+      ctx.fillStyle = "#40c057";
+      ctx.fillRect(p.x - p.w / 2 - 5, p.gapY - 16, p.w + 10, 16);
+      ctx.fillRect(p.x - p.w / 2 - 5, p.gapY + p.gapH, p.w + 10, 16);
+    }
+
+    // orbs
+    for (const o of orbs) {
+      if (o.taken) continue;
+      if (o.edu) {
+        const pr = o.r + (Math.sin(o.phase) + 1) * 2;
+        ctx.fillStyle = "rgba(255,210,40,0.95)";
+        ctx.beginPath(); ctx.arc(o.x, o.y, pr, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#1a1200"; ctx.font = "bold 16px system-ui"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText("?", o.x, o.y + 1);
+      } else {
+        ctx.fillStyle = "#ffe08a";
+        ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+
+    // bird
+    if (bird) {
+      const blink = bird.invuln > 0 && (Math.floor(bird.invuln * 12) % 2 === 0);
+      if (!blink) {
+        ctx.save(); ctx.translate(bird.x, bird.y); ctx.rotate(bird.rot);
+        ctx.fillStyle = ACCENT;
+        ctx.beginPath(); ctx.ellipse(0, 0, bird.r, bird.r * 0.82, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(bird.r * 0.4, -bird.r * 0.3, 4, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#222"; ctx.beginPath(); ctx.arc(bird.r * 0.5, -bird.r * 0.3, 2, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#ff922b"; ctx.beginPath();
+        ctx.moveTo(bird.r * 0.9, 0); ctx.lineTo(bird.r * 1.4, -3); ctx.lineTo(bird.r * 1.4, 5); ctx.closePath(); ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    for (const p of particles) {
+      ctx.globalAlpha = Math.max(0, 1 - p.age / p.life);
+      ctx.fillStyle = p.color; ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    }
+    ctx.globalAlpha = 1;
+
+    if (flashRect && flashRect.a > 0.01) {
+      ctx.fillStyle = hexA(flashRect.color, flashRect.a);
+      ctx.fillRect(0, 0, W, H); flashRect.a *= 0.92;
+    }
+
+    // HUD
+    ctx.fillStyle = "rgba(255,255,255,0.92)"; ctx.font = "bold 16px system-ui";
+    ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillText("Score " + score, 14, 12);
+    ctx.textAlign = "right"; ctx.fillText("♥ " + lives, W - 14, 12);
+    ctx.fillStyle = "#bfe6a0"; ctx.textAlign = "center"; ctx.fillText("✓ " + correct + "  " + FROM, W / 2, 12);
+    if (combo >= 2) { ctx.fillStyle = "#ffcf33"; ctx.fillText("🔥 x" + combo, W / 2, 32); }
+    if (speedLevel > 0) { ctx.fillStyle = "#b794ff"; ctx.fillText("⚡ Lv." + speedLevel, W / 2, 52); }
+
+    if (state === "menu") {
+      drawScreen("🐤 Flappy Words",
+        ["Flap through the pipes — grab the ❓ orbs!",
+         highscore > 0 ? "🏆 Best Score: " + highscore : "No high score yet — be the first!",
+         "Space / ↑ / W (or the FLAP button) to flap",
+         "Answer every word to WIN ·  pipe hits cost a life"],
+        "Tap the screen or press any key to start", "#ffd43b");
+    } else if (state === "over") {
+      const newHs = score >= highscore && score > 0;
+      drawScreen(lastWin ? "🏆 YOU WIN!" : "💥 GAME OVER",
+        [(lastWin ? "All words answered — you flew through!" : "You crashed!"),
+         "📖 Words correct: " + correct,
+         "Final Score: " + score + (newHs ? "   🏆 NEW!" : ""),
+         highscore > 0 ? "🏆 Best: " + highscore : ""].filter(Boolean),
+        "↺ Play again  (tap screen or press any key)", lastWin ? "#ffe08a" : "#ff8a8a");
+    }
+  }
+
+  function drawScreen(title, lines, footer, titleColor) {
+    ctx.fillStyle = "rgba(3,5,12,0.72)"; ctx.fillRect(0, 0, W, H);
+    const pw = 470, ph = 300, px = (W - pw) / 2, py = (H - ph) / 2;
+    roundRect(px, py, pw, ph, 16);
+    ctx.fillStyle = "rgba(13,17,28,0.97)"; ctx.fill();
+    ctx.lineWidth = 3; ctx.strokeStyle = ACCENT; ctx.stroke();
+    ctx.textAlign = "center";
+    ctx.fillStyle = titleColor || ACCENT;
+    ctx.font = "bold 33px system-ui, sans-serif"; ctx.fillText(title, W / 2, py + 56);
+    ctx.fillStyle = "#dfe6ff"; ctx.font = "15px system-ui, sans-serif";
+    let y = py + 108;
+    for (let i = 0; i < lines.length; i++) { ctx.fillText(lines[i], W / 2, y); y += 28; }
+    ctx.fillStyle = ACCENT; ctx.font = "bold 17px system-ui, sans-serif";
+    ctx.fillText(footer, W / 2, py + ph - 34);
+    ctx.textAlign = "left";
+  }
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath(); ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+  function hexA(hex, a) {
+    const h = hex.replace("#", "");
+    return "rgba(" + parseInt(h.substr(0, 2), 16) + "," + parseInt(h.substr(2, 2), 16) + "," + parseInt(h.substr(4, 2), 16) + "," + a + ")";
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    let dt = (now - last) / 1000; last = now;
+    if (dt > 0.05) dt = 0.05;
+    update(dt); draw(); requestAnimationFrame(frame);
+  }
+  E.send(E.MSG.READY);
+
+  // ── on-screen touch control: bottom-right, semi-transparent FLAP button ──
+  // Single-shot per press (impulse) — matches the shared engine contract.
+  (function mountFlapControls() {
+    const css =
+      ".flap-tc{position:fixed;right:18px;bottom:18px;z-index:50;touch-action:none;" +
+      "user-select:none;-webkit-user-select:none;pointer-events:none;opacity:0.45;}" +
+      ".flap-tc .tc{appearance:none;width:84px;height:84px;border:0;cursor:pointer;" +
+      "color:#1a1200;font-weight:800;font-size:20px;border-radius:50%;" +
+      "background:radial-gradient(circle at 35% 30%,#ffe066,#f0c419);" +
+      "box-shadow:0 4px 0 rgba(0,0,0,0.35),inset 0 2px 0 rgba(255,255,255,0.4);" +
+      "border:2px solid rgba(255,255,255,0.25);touch-action:none;user-select:none;-webkit-user-select:none;" +
+      "pointer-events:auto;transition:transform .04s ease,background .1s ease;}" +
+      ".flap-tc .tc:active{transform:translateY(3px);background:radial-gradient(circle at 35% 30%,#fff3a0,#ffd43b);}";
+    const st = document.createElement("style"); st.textContent = css; document.head.appendChild(st);
+    const b = document.createElement("button"); b.type = "button"; b.className = "tc"; b.textContent = "FLAP";
+    let held = false;
+    const press = function (e) {
+      if (held) return; held = true;
+      if (e.pointerId != null && b.setPointerCapture) { try { b.setPointerCapture(e.pointerId); } catch (_) {} }
+      e.preventDefault(); e.stopPropagation(); flap();
+    };
+    const release = function (e) {
+      if (!held) return; held = false;
+      if (e && e.pointerId != null && b.releasePointerCapture) { try { b.releasePointerCapture(e.pointerId); } catch (_) {} }
+    };
+    b.addEventListener("pointerdown", press);
+    b.addEventListener("pointerup", release);
+    b.addEventListener("pointercancel", release);
+    b.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+    const wrap = document.createElement("div"); wrap.className = "flap-tc"; wrap.appendChild(b);
+    document.body.appendChild(wrap);
+  })();
+
+  // ── test seam (used only by test_flappy.js; inert in normal play) ──
+  if (window.__FLAP_TEST__) {
+    window.__flap = {
+      getState: function () { return state; },
+      lives: function () { return lives; },
+      hitEdu: function (isCorrect) {
+        if (wordsLeft <= 0) return state;
+        // synthetic quiz orb so the seam works without the spawn loop running
+        const o = { x: bird ? bird.x : 100, y: bird ? bird.y : 100, edu: true, taken: false, word: wordQueue[0] ? wordQueue[0].from : "" };
+        awaitingAnswer = true; quizOrb = o; state = "paused";
+        onAnswer(isCorrect);
+        return state;
+      },
+    };
+  }
+
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

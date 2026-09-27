@@ -1,0 +1,50 @@
+a bit of: biraz
+a bottle: bir şişe
+a bowl of: bir kase
+a couple of: birkaç
+a glass: bir bardak
+a hot potato: hassas konu
+a packet: bir paket
+absolutely: kesinlikle
+add: eklemek
+after: sonra
+apple: elma
+as: olarak
+autumn: sonbahar
+available: mevcut
+baked: pişmiş
+baking powder: kabartma tozu
+be mad at: kızmak
+beans: fasulye
+beef: sığır eti
+biscuits: bisküvi
+boil: haşlamak
+book: rezervasyon yapmak
+both: her ikisi
+bread: ekmek
+breakfast: kahvaltı
+bring: getirmek
+butter: tereyağı
+carefully: dikkatlice
+check: kontrol etmek
+cheese: peynir
+chicken: tavuk
+chocolate: çikolata
+cinnamon: tarçın
+clean: temizlemek
+company: eşlik
+computer  game: bilgisayar  oyunu
+cook: pişirmek
+corn: mısır
+count: saymak
+cucumber: salatalık
+culture: kültür
+cut: kesmek
+delicious: lezzetli
+dessert: tatlı
+dinner: akşam yemeği
+dough: hamur
+drink: içecek
+eat: yemek yemek
+enjoy: keyif almak
+excellent: mükemmel

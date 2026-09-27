@@ -1,0 +1,68 @@
+brush teeth: diş fırçalamak
+go to school: okula gitmek
+have breakfast: kahvaltı yapmak
+rest after school: okuldan sonra dinlenmek
+wake up: uyanmak
+walk to school: okula yürümek
+write a diary: günlük yazmak
+answer questions: soruları cevaplamak
+check answers: cevapları kontrol etmek
+discuss: tartışmak
+focus on project: projeye odaklanmak
+give feedback: geri bildirim vermek
+learning activities: öğrenme etkinlikleri
+pairwork: ikili çalışma
+practice English: İngilizce pratik yapmak
+prepare the presentation: sunum hazırlamak
+read aloud: yüksek sesle okumak
+read silently: sessiz okumak
+read in turns: dönüşümlü okumak
+read one after another: sıra sıra okumak
+repeat: tekrar etmek
+review: gözden geçirmek
+revise lessons: dersleri tekrar etmek
+role-play: canlandırma
+search: araştırmak
+solve problems: problemler çözmek
+study hard: sıkı çalışmak
+take notes: notlar almak
+vocabulary work: kelime çalışması
+work alone: yalnız çalışmak
+work in groups: grupla çalışmak
+work in pairs: iki kişi birlikte çalışmak
+working together: birlikte çalışmak
+workshop: atölye çalışması
+write down new words: yeni kelimeleri yazmak
+writing a brief: kısa bir yazı yazmak
+after: sonra
+before: önce
+careful: dikkatli
+classmate: sınıf arkadaşı
+continue: devam etmek
+count: saymak
+creative: yaratıcı
+each other: birbiri
+easily: kolayca
+effective: etkili
+enjoyable: eğlenceli, keyifli
+firstly: ilk olarak
+habit: alışkanlık
+helpful: yardımsever
+highlighter: fosforlu kalem
+instruction: yönerge
+learning methods: öğrenme yöntemleri
+level: seviye
+library: kütüphane
+mark: işaretlemek
+method: yöntem
+point: puan
+recycle: geri dönüştürmek
+regular: düzenli
+remember: hatırlamak
+research: araştırma
+share: paylaşmak
+sort: sınıflandırmak, ayırmak
+strange: tuhaf
+task: görev
+together: birlikte
+volunteer: gönüllü

@@ -1,0 +1,116 @@
+atmosphere: atmosfer
+Earth: Dünya
+green planet: yeşil gezegen
+Jupiter: Jüpiter
+Mars: Mars
+moon: ay, uydu
+natural satellite: doğal uydu
+Neptune: Neptün
+orbit: yörünge
+planets: gezegenler
+Saturn: Satürn
+space: uzay
+Sun: Güneş
+Uranus: Uranüs
+Venus: Venüs
+air pollution: hava kirliliği
+eco-cities: çevre dostu şehirler
+find a cure: tedavi bulmak
+flying cars: uçan arabalar
+rising sea levels: deniz seviyesinin yükselmesi
+rooftop farm: çatı tarımı
+smart house: akıllı ev
+space cargo ships: uzay yük gemileri
+underwater cities:  su altı şehirler
+water pollution: su kirliliği
+blizzard: kar fırtınası
+drought: kuraklık
+flood: sel
+heavy winds: şiddetli rüzgarlar
+hurricane: kasırga
+lightning: yıldırım
+storm: fırtına
+thunderstorm: gök gürültülü fırtına
+tornado: hortum
+water shortage: su kıtlığı
+plant trees: ağaçlar dikmek
+protect water sources: su kaynaklarını korumak
+recycle: geri dönüştürmek
+reduce: azaltmak
+save  energy: enerji tasarrufu yapmak
+sort something out: ayıklamak
+take a shorter shower: daha kısa duş almak
+turn off the lights: ışıkları kapatmak
+turn off the taps: muslukları kapatmak
+use public transportation: toplu taşıma kullanmak
+use recycled products: geri dönüştürülmüş ürünler kullanmak
+use renewable energy sources: yenilenebilir enerji kaynakları kullanmak
+waste water: suyu israf etmek
+alive: canlı
+bright: aydınlık
+close: yakın
+cold: soğuk
+common: yaygın
+dangerous: tehlikeli
+eco-friendly: çevre dostu
+enough: yeterli
+exciting: heyecan verici
+far away: uzak, çok uzak
+freezing: dondurucu
+happier: daha mutlu
+hot: sıcak
+interesting: ilgi çekici
+peaceful: huzurlu
+possible: mümkün
+safer: daha güvenli
+thick: kalın
+unusual: sıra dışı
+visible: görülebilir
+I am sure: eminim
+I believe: inanıyorum
+I hope: umarım
+I think: bence
+ice giant: buz devi
+In my opinion: benim fikrime göre
+be composed of: -den oluşmak
+create: oluşturmak, yaratmak
+development: gelişme
+disaster: afet
+disease: hastalık
+distance: mesafe
+drop: damla
+exist: var olmak
+experience: deneyim
+expert: uzman
+factory: fabrika
+famous person: ünlü kişi
+give light: aydınlatmak
+glass: cam
+goal: amaç, hedef
+harm: zarar vermek
+holiday type: tatil türü
+invent: icat etmek
+lake: göl
+sandcastle: kumdan kale
+nature: doğa
+new technology: yeni teknoloji
+orbit: yörünge, yörüngede dönmek
+paper: kağıt
+plastic bags: plastik poşetler
+plastic bottles: pet şişeler
+population: nüfus
+predict: tahmin etmek
+railway: demiryolu
+river: nehir
+run out of: tükenmek
+scientists: bilim insanları
+seaside: deniz kenarı
+sky: gökyüzü
+solar panels: güneş panelleri
+soon: yakında
+source: kaynak
+survive: hayatta kalmak
+temperature: sıcaklık
+travel: seyahat etmek
+universe: evren
+world: dünya

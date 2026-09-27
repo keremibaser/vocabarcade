@@ -1,0 +1,54 @@
+drive: araba yolculuğu
+lorry: kamyon
+means of transport: ulaşım  araçları
+motorcycle: motosiklet
+public transport: toplu taşıma
+railway: demiryolu
+ship: gemi
+tram: tramvay
+tube / underground: metro
+van: panelvan, kapalı kamyonet
+vehicle:  araç,  taşıt
+wheel: tekerlek
+audience: dinleyici, izleyici kitlesi
+celebrate: kutlamak
+festival: festival
+jazz: caz müziği
+musician: müzisyen
+perform: sergilemek, sahnelemek
+pop: pop müziği
+rap: rap müziği
+rock: rock müziği
+wedding: düğün
+along: boyunca
+cross: karşıdan karşıya geçmek
+direction: yön
+overpass: üst geçit
+parking: park etme
+past: geçmiş, geçmek
+platform: peron, platform
+straight: dümdüz, düz
+underpass: alt geçit
+catch: yakalamak
+count someone in: birini dahil etmek
+hang on: beklemek (kısa süre)
+link: bağlantı kurmak, bağ
+organise: düzenlemek
+practice: pratik yapmak
+raise (money): para toplamak
+ride: binmek (bisiklet vb.), kısa sürüş
+rush: acele etmek
+skate: paten kaymak
+creative: yaratıcı
+crowded: kalabalık
+guest: misafir
+local: yerel
+pleased: memnun
+tired: yorgun
+best / better: en iyi / daha iyi
+neighbourhood: mahalle, çevre
+slowly: yavaşça
+gas / petrol: gaz / benzin
+sign: işaret, tabela
+social: sosyal
+traffic jam: trafik sıkışıklığı

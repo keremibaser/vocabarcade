@@ -1,0 +1,112 @@
+agent: acenta, ajan
+ancient sites: antik alanlar
+armchair: koltuk
+art gallery: sanat galerisi
+attraction: cazibe merkezi
+balcony: balkon
+bath: küvet
+bathroom: banyo
+beautiful: güzel
+bed: yatak
+bedroom: yatak odası
+big: büyük
+bookcase: kitaplık
+borrow: ödünç almak
+brand-new: yepyeni
+bright: parlak
+car: araba
+castle: kale
+chair: sandalye
+city: şehir
+close: yakın / kapatmak
+coast: sahil
+cold: soğuk
+comfortable: rahat
+corridor: koridor
+crowded: kalabalık
+cupboard: dolap
+describe: tanımlamak
+desk lamp: masa lambası
+different: farklı
+dining room: yemek odası
+dishwasher: bulaşık makinesi
+easily: kolayca
+eco-friendly: çevre dostu
+environment: çevre
+event: etkinlik
+expensive: pahalı
+experience: deneyim
+famous: ünlü
+fork: çatal
+fridge: buzdolabı
+furniture: mobilya
+garage: garaj
+garden: bahçe
+grass: çim
+ground: zemin
+gym: spor salonu
+handmade: el yapımı
+hall: salon
+hire: kiralamak
+historical: tarihi
+hot: sıcak
+house: ev
+information: bilgi
+inside: içeride
+interesting: ilginç
+jump: zıplamak
+kitchen: mutfak
+knife: bıçak
+large: büyük
+library: kütüphane
+live: yaşamak
+local: yerel
+location: konum
+modern: modern
+mosque: cami
+museum: müze
+natural: doğal
+outside: dışarıda
+nature: doğa
+neighbourhood: mahalle
+open-air cinema: açık hava sineması
+oven: fırın
+peaceful: huzurlu
+pillow: yastık
+plants: bitkiler
+plate: tabak
+playground: oyun alanı
+quiet: sessiz
+recreation: eğlence
+roof: çatı
+rubbish bin: çöp kutusu
+shoe shop: ayakkabı mağazası
+shop: dükkân
+sitting room: oturma odası
+sky: gökyüzü
+small: küçük
+sofa: kanepe
+spin: döndürmek
+sports centre: spor merkezi
+square: meydan
+steel: çelik
+stone: taş
+street fair: sokak panayırı
+strong: güçlü
+stuff: eşya
+tall: uzun
+terrace: teras
+tile: kiremit
+tiny: çok küçük
+toilet: tuvalet
+tower: kule
+town: kasaba
+traditional: geleneksel
+unusual: alışılmadık
+visit: ziyaret etmek
+wardrobe: gardırop
+wherever: her nerede
+wide: geniş
+window: pencere
+wooden: ahşap
+wooden spoon: tahta kaşık
