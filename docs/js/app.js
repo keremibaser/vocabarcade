@@ -215,11 +215,18 @@
     closeQuiz();
     showScreen("player");
 
-    const payload = E.encodePayload(JSON.stringify({
-      vocab: game.vocab || [], fromLang: "Turkish", toLang: "English", accent: game.accent,
-      sound: Sound.isEnabled(),
-    }));
-    iframe.src = "games/" + game.type + "/" + game.type + ".html?payload=" + encodeURIComponent(payload);
+    // The topic travels through sessionStorage, NOT the URL: the old ?payload= link
+    // grew to ~380 KB for the big curriculum units and GitHub Pages rejects a query
+    // string that long (HTTP 414), leaving the game frame dead. sessionStorage has no
+    // such limit, and ?t= makes sure the frame really reloads when a new topic starts.
+    const launch = {
+      vocab: (game.vocab || []).map(function (v) { return { from: v.from, correct: v.correct }; }),
+      fromLang: "Turkish", toLang: "English", accent: game.accent, sound: Sound.isEnabled(),
+    };
+    const handed = E.writeLaunch && E.writeLaunch(launch);
+    const url = "games/" + game.type + "/" + game.type + ".html?t=" + Date.now() +
+      (handed ? "" : "&payload=" + encodeURIComponent(E.encodePayload(JSON.stringify(launch))));
+    iframe.src = url;
   }
   function quitPlayer(tab) {
     try { iframe.contentWindow.postMessage({ type: E.MSG.QUIT }, "*"); } catch (e) {}

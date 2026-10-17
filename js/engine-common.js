@@ -66,11 +66,42 @@
     return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   }
 
+  // readLaunch() hands the topic to an engine. Two transports, in order:
+  //   1. the host writes it to sessionStorage (same origin) — no size limit, so a
+  //      164-word unit can never blow the URL length cap (GitHub Pages answers 414
+  //      to long query strings, which shows up as a dead game frame)
+  //   2. ?payload=<url-safe base64 json> — used by tests, tools and by the host when
+  //      storage is unavailable. Keep this path for standalone/short payloads only.
+  const LAUNCH_KEY = "VOCABARC_LAUNCH_V1";
+
+  function normalizeLaunch(launch) {
+    // the URL transport ships a compact list (no `_pool`), so rebuild the distractor
+    // pool from the pairs themselves. A payload that already has one is left alone.
+    if (!launch || !Array.isArray(launch.vocab)) return launch;
+    const pool = launch.vocab.map(function (v) { return v.correct; });
+    launch.vocab.forEach(function (v) {
+      if (!Array.isArray(v._pool) || !v._pool.length) v._pool = pool;
+    });
+    return launch;
+  }
+
+  function writeLaunch(obj) {
+    try { sessionStorage.setItem(LAUNCH_KEY, JSON.stringify(obj)); return true; }
+    catch (e) { return false; }
+  }
+
   function readLaunch() {
+    try {
+      const raw = sessionStorage.getItem(LAUNCH_KEY);
+      if (raw) {
+        sessionStorage.removeItem(LAUNCH_KEY);        // consume it: never stale
+        return normalizeLaunch(JSON.parse(raw));
+      }
+    } catch (e) {}
     const q = new URLSearchParams(window.location.search);
     const p = q.get("payload");
     if (!p) return null;
-    return decodePayload(p);
+    return normalizeLaunch(decodePayload(p));
   }
 
   // post a message to the parent (the host)
@@ -308,6 +339,7 @@
     overGuard: overGuard,
     fitCanvas: fitCanvas,
     readLaunch: readLaunch,
+    writeLaunch: writeLaunch,
     decodePayload: decodePayload,
     encodePayload: encodePayload,
     mountTouchControls: mountTouchControls,
