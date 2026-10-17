@@ -209,6 +209,16 @@ The host and each game iframe talk over `postMessage`. When the ball/bullet hits
 This preserves the original *Vocabulary Breakout* design: **knowing the word is an in-game
 advantage** — correct answers build a combo (wider paddle / score bonuses).
 
+**How the topic reaches the engine.** The host writes the launch object
+(`{ vocab, fromLang, toLang, accent, sound }`) into `sessionStorage` under
+`VOCABARC_LAUNCH_V1` and loads `games/<type>/<type>.html?t=<stamp>`; the engine's
+`E.readLaunch()` consumes that key (so it is never stale) and, if it is missing, falls
+back to `?payload=<url-safe base64 json>`. The URL path is kept for tests and tools —
+**never for the host**: a 164-word unit encoded that way makes a ~380 KB query string,
+and GitHub Pages rejects it with `HTTP 414 URI Too Long`, which shows up as a dead
+player frame. For the same reason the compact payload carries only `{from, correct}`
+per word; `readLaunch()` rebuilds each entry's distractor `_pool` from the pairs.
+
 ## Run it
 ```
 cd "D:/tool projects/VocabArcade"
