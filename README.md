@@ -222,7 +222,7 @@ HTTP server avoids that.)
 ```
 index.html              host UI (Topics + Games tabs, active-topic banner, player, editor)
 css/styles.css          theming
-data/topics.js          seed of 20 Turkish→English topics (content)
+data/topics.js          seed of 56 Turkish→English topics — the 7. & 8. Sınıf curriculum units first, then general sets
 data/library.js          the game TYPES (engines; topic-agnostic) — 13 playable + whack-a-mole planned
 js/store.js             localStorage: topics, active topic, scores + distractor autofill
 js/engine-common.js     shared host<->engine message protocol
@@ -246,6 +246,12 @@ test_tetris.js          deterministic test: line-clear -> quiz -> clear/wrong-an
 - **Rename a topic:** Topics tab → 🏷 on the topic card → type a new name → Rename.
 - **Delete a topic:** Topics tab → 🗑 on the topic card → confirm. If it was the active
   topic, the active selection is cleared. Scores are keyed per topic+game and are left alone.
+- **Grades & units (7. Sınıf / 8. Sınıf):** the 20 MEB unit topics are tagged `7. Sınıf` /
+  `8. Sınıf` and titled `Ünite N · Name`, they sit at the top of the Topics tab, and each grade
+  gets its own filter chip. `data/topics.js` is the source of truth: on every load the host
+  **adds** any topic you are missing, **refreshes** the title/emoji/category/desc of topics you
+  have not edited, and **keeps your words**. Anything you save through the editor is marked
+  `touched` and is never overwritten afterwards — your edits always win.
 - **New game engine:** copy `games/breakout/breakout.html` to `games/<type>/<type>.html`,
   keep the `VocabEngine` contract, add `{ id, title, engine:"<type>", emoji, accent, ready:true,
   blurb }` to `data/library.js`.

@@ -28,26 +28,50 @@
     } catch (e) {}
   })();
 
-  // ---- seed merge: add ANY seed topic (from topics.js) missing from localStorage ----
-  // so newly-added topics appear for returning users WITHOUT wiping their edits.
-  (function mergeSeed() {
+  // ---- seed sync: keep the catalog in step with data/topics.js ----
+  //   1. a seed topic missing locally is ADDED whole
+  //   2. an existing topic the user has NOT touched gets its metadata refreshed
+  //      (title / emoji / category / desc) while its WORDS stay exactly as they are
+  //   3. the list is re-ordered to the seed's order; topics the user made themselves
+  //      (not in the seed) keep their relative order at the end
+  // Anything saved through the editor is marked `touched` and is never overwritten,
+  // so a user's own edits always win over the seed.
+  (function syncSeed() {
     try {
       const seed = window.VOCAB_TOPICS || [];
       if (!seed.length) return;
       let list = [];
       const raw = localStorage.getItem(TOPICS_KEY);
       if (raw) { const p = JSON.parse(raw); if (Array.isArray(p)) list = p; }
-      const have = {};
-      list.forEach(function (t) { have[t.id] = true; });
-      let added = 0;
-      seed.forEach(function (t) {
-        if (!have[t.id]) {
-          list.push({ id: t.id, title: t.title, emoji: t.emoji, category: t.category, desc: t.desc,
-                       words: (t.words || []).map(function (w) { return { tr: w.tr, en: w.en, distractors: (w.distractors || []).slice() }; }) });
-          added++;
+      const local = {};
+      list.forEach(function (t, i) { local[t.id] = t; });
+      let changed = false;
+
+      seed.forEach(function (s) {
+        const cur = local[s.id];
+        if (!cur) {                                   // 1) brand-new topic
+          list.push({ id: s.id, title: s.title, emoji: s.emoji, category: s.category, desc: s.desc,
+                      words: (s.words || []).map(function (w) { return { tr: w.tr, en: w.en, distractors: (w.distractors || []).slice() }; }) });
+          changed = true;
+          return;
         }
+        if (cur.touched) return;                      // 2) the user's own copy wins
+        ["title", "emoji", "category", "desc"].forEach(function (k) {
+          if (s[k] !== undefined && cur[k] !== s[k]) { cur[k] = s[k]; changed = true; }
+        });
       });
-      if (added) localStorage.setItem(TOPICS_KEY, JSON.stringify(list));
+
+      // 3) seed order first, user-made topics stay at the end in their own order
+      const rank = {};
+      seed.forEach(function (s, i) { rank[s.id] = i; });
+      const ordered = list.slice().sort(function (a, b) {
+        const ra = rank[a.id] === undefined ? 1e9 : rank[a.id];
+        const rb = rank[b.id] === undefined ? 1e9 : rank[b.id];
+        return ra - rb;
+      });
+      for (let i = 0; i < ordered.length; i++) if (ordered[i] !== list[i]) { changed = true; break; }
+
+      if (changed) localStorage.setItem(TOPICS_KEY, JSON.stringify(ordered));
     } catch (e) {}
   })();
 
@@ -82,6 +106,7 @@
     },
     upsertTopic: function (topic) {
       const ts = loadTopics(); let found = false;
+      topic.touched = true;                      // user-made: the seed sync must never overwrite it
       for (let i = 0; i < ts.length; i++) if (ts[i].id === topic.id) { ts[i] = topic; found = true; break; }
       if (!found) ts.push(topic);
       saveTopics(ts); return topic;
