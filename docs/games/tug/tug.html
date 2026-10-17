@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Word Tug-of-War</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #05060f; overflow: hidden; font-family: system-ui, "Segoe UI", Roboto, Arial, sans-serif; }
+  body { display: flex; align-items: center; justify-content: center; }
+  #c { display: block; touch-action: none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script src="../../js/engine-common.js"></script>
+<script>
+/* ============================================================================
+ * Word Tug-of-War engine — a head-to-head classroom duel
+ * ----------------------------------------------------------------------------
+ * Two teams share one rope. Teams take turns answering a word; the team that
+ * answers correctly hauls the rope one pull toward its own side. Miss, and the
+ * other team gets ONE steal attempt on the same word — answer it and they take
+ * the pull instead. Three in a row is a POWER PULL (two at once). Haul the knot
+ * past your marker and your team wins.
+ *
+ * Contract with the host (see js/engine-common.js):
+ *   engine -> host : ready, ask {word, correct, options, team}, hud, event, result
+ *   host -> engine : answer {correct}, pause, resume, quit, start
+ * The optional `team` / `teamColor` fields in ASK let the host label the question
+ * panel with whose turn it is (older hosts simply ignore them).
+ * ========================================================================== */
+(function () {
+  "use strict";
+  const E = window.VocabEngine;
+
+  const launch = E.readLaunch() || { vocab: [], fromLang: "Word", toLang: "Meaning", accent: "#e8590c" };
+  let VOCAB = E.shuffle(launch.vocab || []);
+  const FROM = launch.fromLang || "Word";
+  const TO = launch.toLang || "Meaning";
+  const ACCENT = launch.accent || "#e8590c";
+
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+  const W = 800, H = 600;
+  function resize() { E.fitCanvas(canvas, ctx, W, H); }   // crisp, never stretched
+  window.addEventListener("resize", resize); resize();
+
+  const Sfx = E.sfx({ enabled: launch.sound !== false });
+
+  // ---- the pitch ----
+  const TNAME = ["🔴 KIRMIZI TAKIM", "🔵 MAVİ TAKIM"];
+  const TCOL = ["#e03131", "#1c7ed6"];
+  const TSHORT = ["KIRMIZI", "MAVİ"];
+  const CX = 400, ROPE_Y = 332;
+  const ROPE_L = 152, ROPE_R = 648;
+  const STEP = 16, WIN_AT = 8;          // 8 net pulls to win -> 128 px of travel
+  const POST_DX = STEP * WIN_AT;
+  const PULL_DUR = 0.55;
+  const SETTLE_DUR = 2.5;    // hold the arena on the new rope position before the next question
+
+  // ---- state ----
+  let state = "menu";        // menu | asking | steal | pulling | settle | over
+  let paused = false;
+  let pull = 0;              // net pulls for RED (positive = the knot is on red's side)
+  let pullFrom = 0, pullTo = 0, pullT = 0;
+  let turnTeam = 0;          // whose regular turn it is (0 = red, 1 = blue)
+  let askTeam = 0;           // who is being asked right now
+  let stealHappened = false;
+  let streak = [0, 0];       // in-a-row counter per team
+  let rights = [0, 0];       // words answered correctly per team
+  let qi = 0, asked = 0, correct = 0;
+  let curEntry = null, curAsk = null, lastGain = 0, lastPulled = -1;
+  let winner = -1;
+  let bannerT = 0, bannerMsg = "";
+  let settleT = 0, settleMsg = "";
+  let cheer = 0, cheerTeam = -1;
+  let particles = [], bgTime = 0, pulse = 0;
+
+  // ---- flow ----
+  // the result screen must sit for a moment before it can be tapped away
+  const OverLock = E.overGuard(2000);
+  function startGame() {
+    if (OverLock.live()) return;
+    VOCAB = E.shuffle(launch.vocab || []);   // fresh order on every run / restart
+    qi = 0; asked = 0; correct = 0;
+    pull = 0; pullFrom = 0; pullTo = 0; pullT = 0;
+    turnTeam = 0; askTeam = 0; stealHappened = false;
+    streak = [0, 0]; rights = [0, 0];
+    winner = -1; bannerT = 0; bannerMsg = "";
+    cheer = 0; cheerTeam = -1; particles = [];
+    curEntry = null; curAsk = null;
+    if (!VOCAB.length) { gameOver(-1); return; }   // nothing to ask
+    nextQuestion();
+  }
+
+  function nextQuestion() {
+    if (qi >= VOCAB.length) {
+      VOCAB = E.shuffle(launch.vocab || []);       // pool empty: fresh words, duel goes on
+      qi = 0;
+      bannerMsg = "YENİ TUR · kelimeler yeniden karıştırıldı";
+      bannerT = 2.4;
+    }
+    curEntry = VOCAB[qi++];
+    asked++;
+    stealHappened = false;
+    sendAsk(turnTeam, false);
+  }
+
+  function sendAsk(team, steal) {
+    askTeam = team;
+    state = steal ? "steal" : "asking";
+    curAsk = E.buildOptions(curEntry);
+    Sfx.edu();
+    E.send(E.MSG.ASK, {
+      word: curEntry.from,
+      correct: curAsk.correct,
+      options: curAsk.options,
+      team: TNAME[team] + (steal ? " · ÇALMA ŞANSI" : ""),
+      teamColor: TCOL[team],
+    });
+    emitHud();
+  }
+
+  function onAnswer(ok) {
+    if (state !== "asking" && state !== "steal") return;
+    const wasSteal = state === "steal";
+    const team = askTeam;
+    if (ok) {
+      correct++;
+      rights[team]++;
+      streak[team]++;
+      const gain = streak[team] >= 3 ? 2 : 1;       // three in a row = power pull
+      lastGain = gain; lastPulled = team;
+      E.send(E.MSG.EVENT, { name: "correct", combo: streak[team] });
+      startPull(team, gain);
+    } else {
+      streak[team] = 0;
+      E.send(E.MSG.EVENT, { name: "wrong" });
+      if (!wasSteal) {
+        stealHappened = true;                        // one steal attempt for the other team
+        sendAsk(1 - team, true);
+        return;
+      }
+      // the steal failed as well: nobody hauls, and the turn goes back to the asker
+      lastGain = 0; lastPulled = -1;
+      pullFrom = pull; pullTo = pull; pullT = 0;
+      state = "pulling";
+      emitHud();
+    }
+  }
+
+  function startPull(team, gain) {
+    pullFrom = pull;
+    pullTo = pull + (team === 0 ? gain : -gain);
+    pullT = 0;
+    state = "pulling";
+    cheer = 1; cheerTeam = team;
+    if (gain > 1) Sfx.break_(); else Sfx.hit();
+    emitHud();
+  }
+
+  // the knot settles: check for a winner, then hold the result on screen for a
+  // moment so the whole class can see how far the rope moved before the next word.
+  function resolvePull() {
+    pull = pullTo;
+    if (pull >= WIN_AT) { gameOver(0); return; }
+    if (pull <= -WIN_AT) { gameOver(1); return; }
+    if (!stealHappened) turnTeam = 1 - turnTeam;     // a steal keeps the turn with the asker
+    settleMsg = lastGain > 0
+      ? (lastPulled === 0 ? "🔴 KIRMIZI ÇEKTİ +" : "🔵 MAVİ ÇEKTİ +") + lastGain
+      : "KİMSE ÇEKTİREMEDİ";
+    settleT = SETTLE_DUR;
+    state = "settle";
+    Sfx.blip();
+  }
+
+  function gameOver(w) {
+    state = "over";
+    OverLock.arm();
+    winner = w;
+    const score = correct * 10 + Math.abs(Math.round(pull)) * 5;
+    E.send(E.MSG.EVENT, { name: "win" });
+    E.send(E.MSG.RESULT, { win: true, score: score, correct: correct, total: asked });
+    emitHud();
+  }
+
+  function emitHud() {
+    E.send(E.MSG.HUD, {
+      score: correct * 10, lives: 0, correct: correct,
+      combo: state === "asking" || state === "steal" ? streak[askTeam] : Math.max(streak[0], streak[1]),
+      level: 0,
+    });
+  }
+
+  function burst(n, color, x, y) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 50 + Math.random() * 210;
+      particles.push({ x: x, y: y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, r: 2 + Math.random() * 3, life: 0.6 + Math.random() * 0.7, color: color, g: 260 });
+    }
+  }
+
+  // ---- input: tap / Space with nothing to answer just starts or restarts ----
+  window.addEventListener("pointerdown", function () {
+    if (state === "menu" || state === "over") startGame();
+  });
+  window.addEventListener("keydown", function (e) {
+    const k = e.key.toLowerCase();
+    if (k === " " || k === "enter") e.preventDefault();
+    if ((state === "menu" || state === "over") && (k === " " || k === "enter")) startGame();
+  });
+
+  E.listen(function (msg) {
+    if (msg.type === E.MSG.START) startGame();
+    else if (msg.type === E.MSG.ANSWER) onAnswer(msg.correct);
+    else if (msg.type === E.MSG.PAUSE) paused = true;
+    else if (msg.type === E.MSG.RESUME) paused = false;
+    else if (msg.type === E.MSG.QUIT) state = "menu";
+  });
+
+  // ---- update ----
+  function update(dt) {
+    bgTime += dt; pulse += dt;
+    if (bannerT > 0) bannerT = Math.max(0, bannerT - dt);
+    if (cheer > 0) cheer = Math.max(0, cheer - dt * 1.8);
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx * dt; p.y += p.vy * dt; p.vy += p.g * dt; p.life -= dt;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+    if (paused) return;
+    if (state === "pulling") {
+      pullT += dt;
+      const p = pullT >= PULL_DUR ? 1 : pullT / PULL_DUR;
+      const c1 = 1.70158, c3 = c1 + 1;                       // ease-out-back: a real yank
+      const e = 1 + c3 * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2);
+      pull = pullFrom + (pullTo - pullFrom) * e;
+      if (p >= 1) resolvePull();
+    } else if (state === "settle") {
+      // the rope stays on screen for a beat; only then does the next question open
+      settleT -= dt;
+      if (settleT <= 0) nextQuestion();
+    }
+  }
+
+  // ---- drawing ----
+  function text(str, x, y, size, color, align, weight) {
+    ctx.fillStyle = color; ctx.textAlign = align || "center"; ctx.textBaseline = "middle";
+    ctx.font = (weight || 700) + " " + size + "px system-ui,'Segoe UI',Arial,sans-serif";
+    ctx.fillText(str, x, y);
+  }
+  function rrect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y); ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.lineTo(x + w, y + h - r); ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.lineTo(x + r, y + h); ctx.arcTo(x, y + h, x, y + h - r, r);
+    ctx.lineTo(x, y + r); ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+  }
+  function knotX() { return CX - pull * STEP; }
+
+  function drawBackground() {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, "#0a0e22"); g.addColorStop(0.55, "#0b1020"); g.addColorStop(1, "#070a16");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    // stadium spotlights in team colours
+    const spots = [[120, -40, 420, "rgba(224,49,49,0.16)"], [680, -40, 420, "rgba(28,126,214,0.16)"]];
+    for (let i = 0; i < spots.length; i++) {
+      const s = spots[i];
+      const rg = ctx.createRadialGradient(s[0], s[1], 0, s[0], s[1], s[2]);
+      rg.addColorStop(0, s[3]); rg.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = rg; ctx.beginPath(); ctx.arc(s[0], s[1], s[2], 0, Math.PI * 2); ctx.fill();
+    }
+    // ground
+    const gg = ctx.createLinearGradient(0, 468, 0, H);
+    gg.addColorStop(0, "#123018"); gg.addColorStop(1, "#0a1a10");
+    ctx.fillStyle = gg; ctx.fillRect(0, 468, W, H - 468);
+    ctx.strokeStyle = "rgba(255,255,255,0.08)"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, 468); ctx.lineTo(W, 468); ctx.stroke();
+  }
+
+  // two crowds that jump when their team hauls the rope
+  function drawCrowd() {
+    for (let i = 0; i < 46; i++) {
+      const team = i % 2;                                  // evenly split across the ground
+      const x = team === 0 ? 20 + (i * 37) % 360 : 420 + (i * 41) % 360;
+      const row = i % 3;
+      const base = 492 + row * 34;
+      const jump = (cheerTeam === team && cheer > 0) ? Math.sin((1 - cheer) * 9 + i) * 10 * cheer : 0;
+      ctx.globalAlpha = 0.5 + row * 0.2;
+      ctx.fillStyle = TCOL[team];
+      ctx.beginPath(); ctx.arc(x, base - jump, 7 - row, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.beginPath(); ctx.arc(x, base - jump - 9 - row, 4 - row * 0.6, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(240,244,255,0.75)"; ctx.fill();
+    }
+  }
+
+  function drawTeamPanel(team) {
+    const w = 132, h = 250, x = team === 0 ? 12 : W - 12 - w, y = 214;
+    const active = (state === "asking" || state === "steal") && askTeam === team;
+    const glow = active ? 0.55 + 0.45 * Math.sin(pulse * 4) : 0;
+    rrect(x, y, w, h, 16);
+    ctx.fillStyle = "rgba(18,22,42,0.92)"; ctx.fill();
+    ctx.lineWidth = active ? 4 : 2;
+    ctx.strokeStyle = active ? TCOL[team] : "rgba(255,255,255,0.12)";
+    ctx.stroke();
+    if (active) { ctx.globalAlpha = 0.22 * glow; ctx.fillStyle = TCOL[team]; ctx.fill(); ctx.globalAlpha = 1; }
+    text(team === 0 ? "🔴" : "🔵", x + w / 2, y + 44, 40, "#fff", "center");
+    text(TSHORT[team], x + w / 2, y + 88, 18, TCOL[team], "center", 800);
+    text(String(rights[team]), x + w / 2, y + 150, 52, "#eef2ff", "center", 800);
+    text("doğru", x + w / 2, y + 184, 13, "#8fa0c6", "center", 600);
+    if (streak[team] >= 2) {
+      text("🔥 ×" + streak[team], x + w / 2, y + 216, 15, streak[team] >= 3 ? "#ffd43b" : "#97a3c4", "center", 700);
+    }
+  }
+
+  function drawRope() {
+    const kx = knotX();
+    // winning posts
+    for (let s = 0; s < 2; s++) {
+      const px = s === 0 ? CX - POST_DX : CX + POST_DX;
+      ctx.fillStyle = "rgba(180,190,215,0.30)";
+      ctx.fillRect(px - 3, 262, 6, 140);
+      ctx.beginPath(); ctx.arc(px, 258, 8, 0, Math.PI * 2); ctx.fill();
+      text(s === 0 ? "🏁" : "🏁", px, 236, 20, "#fff", "center");
+    }
+    // centre line
+    ctx.setLineDash([6, 8]); ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(CX, 272); ctx.lineTo(CX, 400); ctx.stroke();
+    ctx.setLineDash([]);
+    // the rope itself: two halves meeting at the knot, sagging a little
+    function half(from, to, color) {
+      ctx.beginPath();
+      for (let i = 0; i <= 24; i++) {
+        const x = from + (to - from) * (i / 24);
+        const d = Math.abs(x - kx) / (ROPE_R - ROPE_L);
+        const y = ROPE_Y + 10 * d * d;
+        i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+      }
+      ctx.lineWidth = 12; ctx.strokeStyle = "rgba(10,12,24,0.9)"; ctx.stroke();
+      ctx.lineWidth = 8; ctx.strokeStyle = color; ctx.stroke();
+      ctx.lineWidth = 2; ctx.strokeStyle = "rgba(255,255,255,0.22)";
+      ctx.setLineDash([9, 9]); ctx.stroke(); ctx.setLineDash([]);
+    }
+    half(ROPE_L, kx, "#b83232");
+    half(kx, ROPE_R, "#2a6fbf");
+    // the knot
+    const ky = ROPE_Y + 10 * Math.pow(Math.abs(0) / (ROPE_R - ROPE_L), 2);
+    ctx.beginPath(); ctx.arc(kx, ROPE_Y, 17, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(10,12,24,0.95)"; ctx.fill();
+    ctx.beginPath(); ctx.arc(kx, ROPE_Y, 14, 0, Math.PI * 2);
+    const kg = ctx.createRadialGradient(kx - 5, ROPE_Y - 6, 2, kx, ROPE_Y, 14);
+    kg.addColorStop(0, "#fff4c2"); kg.addColorStop(1, "#e8b02a");
+    ctx.fillStyle = kg; ctx.fill();
+    // a chevron marks the knot's position (drawn, not an emoji: emoji coverage varies)
+    ctx.beginPath();
+    ctx.moveTo(kx, ROPE_Y + 52); ctx.lineTo(kx - 9, ROPE_Y + 37); ctx.lineTo(kx + 9, ROPE_Y + 37);
+    ctx.closePath();
+    ctx.fillStyle = "rgba(232,176,42,0.92)"; ctx.fill();
+    text(pull > 0 ? "+" + pull.toFixed(0) : pull < 0 ? String(pull.toFixed(0)) : "0", kx, ROPE_Y + 70, 22,
+      pull > 0 ? TCOL[0] : pull < 0 ? TCOL[1] : "#97a3c4", "center", 800);
+  }
+
+  function drawHeader() {
+    text("⚔️ KELİME KAPIŞMASI", 24, 32, 21, "#eef2ff", "left", 800);
+    text(asked + " soru · " + correct + " doğru", 24, 58, 14, "#97a3c4", "left", 600);
+    text(FROM + " → " + TO, W - 24, 32, 15, "#97a3c4", "right", 600);
+    text("hedef " + WIN_AT + " çekme", W - 24, 58, 14, "#97a3c4", "right", 600);
+  }
+
+  function drawBanner() {
+    if (state === "menu" || state === "over") return;
+    let msg, col, pulseIt = false;
+    if (bannerT > 0) { msg = bannerMsg; col = "#ffd43b"; }
+    else if (state === "settle") {
+      msg = settleMsg;
+      col = lastPulled === 0 ? TCOL[0] : lastPulled === 1 ? TCOL[1] : "#ffd43b";
+    } else if (state === "steal") { msg = "⚡ ÇALMA ŞANSI · " + TSHORT[askTeam]; col = TCOL[askTeam]; pulseIt = true; }
+    else { msg = "SIRA " + TSHORT[turnTeam] + " TAKIMDA"; col = TCOL[turnTeam]; pulseIt = true; }
+    ctx.globalAlpha = pulseIt ? 0.72 + 0.28 * Math.sin(pulse * 4) : 1;
+    text(msg, W / 2, 96, 24, col, "center", 800);
+    ctx.globalAlpha = 1;
+    if (state === "settle") {
+      // a thin bar so the teacher can see a question is on its way
+      const bw = 260, bx = (W - bw) / 2, by = 120;
+      const prog = Math.max(0, Math.min(1, 1 - settleT / SETTLE_DUR));
+      ctx.fillStyle = "rgba(255,255,255,0.14)";
+      rrect(bx, by, bw, 6, 3); ctx.fill();
+      ctx.fillStyle = col;
+      rrect(bx, by, Math.max(4, bw * prog), 6, 3); ctx.fill();
+    }
+  }
+
+  function drawPanel(title, lines, hint, col) {
+    ctx.globalAlpha = 0.84; ctx.fillStyle = "#05060f"; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
+    const pw = 600, ph = 132 + lines.length * 26 + 46, px = (W - pw) / 2, py = (H - ph) / 2;
+    rrect(px, py, pw, ph, 18);
+    ctx.fillStyle = "rgba(20,24,46,0.95)"; ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.14)"; ctx.lineWidth = 2; ctx.stroke();
+    let y = py + 56;
+    text(title, W / 2, y, 28, col || ACCENT, "center", 800);
+    y += 44;
+    for (let i = 0; i < lines.length; i++) { text(lines[i], W / 2, y, 16, "#b9c4e2", "center", 500); y += 26; }
+    text(hint, W / 2, py + ph - 32, 17, "#ffd43b", "center", 700);
+  }
+
+  function draw() {
+    drawBackground();
+    drawCrowd();
+    drawHeader();
+    drawRope();
+    drawTeamPanel(0);
+    drawTeamPanel(1);
+    drawBanner();
+
+    if (state === "menu") {
+      drawPanel("⚔️ KELİME KAPIŞMASI",
+        ["İki takım, tek halat. Sırayla soru gelir.",
+         "Doğru cevap → halatı kendi tarafına 1 çekme.",
+         "Yanlış cevap → rakip aynı soruyu ÇALAR (doğru bilirse çekmeyi o alır).",
+         "Üst üste 3 doğru = GÜÇLÜ ÇEKME (2 çekme) · " + WIN_AT + " çekme = maç."],
+        "Başlamak için dokun (veya Space)");
+    } else if (state === "over") {
+      const title = winner < 0 ? "OYNAYACAK KELİME YOK" : (winner === 0 ? "🔴 KIRMIZI TAKIM KAZANDI!" : "🔵 MAVİ TAKIM KAZANDI!");
+      const col = winner === 0 ? TCOL[0] : winner === 1 ? TCOL[1] : "#97a3c4";
+      drawPanel(title,
+        [TSHORT[0] + " " + rights[0] + " doğru   ·   " + TSHORT[1] + " " + rights[1] + " doğru",
+         asked + " soru soruldu · halat konumu " + (pull > 0 ? "+" : "") + pull.toFixed(0),
+         winner < 0 ? "Bu konuya kelime ekleyip tekrar dene." : "İyi kapışmaydı!"],
+        "Yeniden kapışmak için dokun", col);
+    } else {
+      text(state === "pulling" ? "HALAT ÇEKİLİYOR…"
+        : state === "settle" ? "Halatın son hâli · yeni soru birazdan…"
+        : "Soru yukarıdaki panelde ↑",
+        W / 2, H - 22, 15, "#9aa8c9", "center", 600);
+    }
+
+    for (let i = 0; i < particles.length; i++) {
+      const p = particles[i];
+      ctx.globalAlpha = Math.max(0, Math.min(1, p.life * 1.5));
+      ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // ---- frame loop ----
+  let last = performance.now();
+  function frame(now) {
+    let dt = (now - last) / 1000; last = now;
+    if (dt > 0.05) dt = 0.05;
+    update(dt); draw();
+    requestAnimationFrame(frame);
+  }
+  E.send(E.MSG.READY);
+  requestAnimationFrame(frame);
+
+  // ── test seam (used only by test_tug.js; inert in normal play) ──
+  if (window.__TUG_TEST__) {
+    window.__tug = {
+      getState: function () { return state; },
+      pull: function () { return pull; },
+      rights: function (t) { return rights[t]; },
+      streak: function (t) { return streak[t]; },
+      turn: function () { return turnTeam; },
+      askTeam: function () { return askTeam; },
+      asked: function () { return asked; },
+      correct: function () { return correct; },
+      winner: function () { return winner; },
+      word: function () { return curEntry ? curEntry.from : null; },
+      options: function () { return curAsk ? curAsk.options.slice() : null; },
+      target: function () { return curAsk ? curAsk.correct : null; },
+      vocabOrder: function () { return VOCAB.map(function (e) { return e.from; }); },
+      answer: function (ok) { onAnswer(!!ok); return state; },
+      tick: function (dt) { update(dt); },
+      restart: function () { startGame(); },
+      winAt: function () { return WIN_AT; },
+    };
+  }
+})();
+</script>
+</body>
+</html>

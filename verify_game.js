@@ -87,6 +87,12 @@ function run(htmlPath) {
     __FLAP_TEST__: true,
     __PAC_TEST__: true,
     __DEF_TEST__: true,
+    __RAI_TEST__: true,
+    __OVER_GUARD_OFF__: true,   // tests restart instantly; the real lock is covered by test_overguard.js
+    __QUIZ_TEST__: true,
+    __WHEEL_TEST__: true,
+    __TUG_TEST__: true,
+    __WALL_TEST__: true,
   };
   sandbox.window = windowObj;
   sandbox.document = {
@@ -134,6 +140,9 @@ function run(htmlPath) {
   const isFlappy = /flappy/i.test(htmlPath);
   const isPac = /pacman/i.test(htmlPath);
   const isDef = /defender/i.test(htmlPath);
+  const isRai = /raiders/i.test(htmlPath);
+  const isWheel = /wheel/i.test(htmlPath);
+  const isTug = /tug/i.test(htmlPath);
   for (let i = 0; i < 40000; i++) {
     if (isTetris) {
       // Tetris: rotate, shift, and soft-drop to actually fill rows and clear lines
@@ -192,6 +201,31 @@ function run(htmlPath) {
       // press-and-hold to fire continuously
       fireRaw("pointerdown", { clientX: cx, clientY: cy });
       if (i % 25 === 0) fireRaw("pointerup", {});   // release occasionally, then re-press next tick
+    } else if (isRai) {
+      // side-scrolling fighter: sweep it up and down so its automatic guns meet the raiders
+      const se = sandbox.window.__rai;
+      if (se && se.getState && se.getState() === "over") { fireMsg("start"); }
+      const cy = 60 + (Math.sin(i / 22) + 1) * 240;
+      fireRaw("pointermove", { clientX: 400, clientY: cy });
+    } else if (isWheel) {
+      // prize wheel: spin whenever it is idle; the loop below answers the question
+      const se = sandbox.window.__wheel;
+      if (se && se.getState && se.getState() === "ready") se.spin();
+    } else if (isTug) {
+      // head-to-head duel: answer only for the red side so the rope really travels
+      // (answering every question correctly would leave the net pull oscillating).
+      // Pending asks are consumed here; the generic block below is told to stay out.
+      const se = sandbox.window.__tug;
+      if (se && se.getState) {
+        const st = se.getState();
+        if (st === "asking" || st === "steal") {
+          for (let k = parentMessages.length - 1; k >= 0; k--) {
+            if (parentMessages[k].type === "ask") { asks++; parentMessages.splice(k, 1); }
+          }
+          se.answer(se.askTeam() === 0);
+          answered++;
+        }
+      }
     } else {
       // sweep the paddle across the screen to deflect the ball horizontally
       sweep = (sweep + 0.18) % (Math.PI * 2);
@@ -206,6 +240,7 @@ function run(htmlPath) {
       if (msg.type === "ask") {
         asks++;
         parentMessages.splice(k, 1);
+        if (isTug) continue;   // the duel answers through its own seam above
         fireMsg("answer", { correct: true });
         answered++;
       } else if (msg.type === "hud") {

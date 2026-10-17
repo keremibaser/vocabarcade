@@ -114,5 +114,11 @@ let prev = null, maxStep = 0;
 for (let s = 0; s <= 1800; s += 50) { inv.setScore(s); const v = inv.marchSpeed(); if (prev !== null) maxStep = Math.max(maxStep, v - prev); prev = v; }
 check("ramp is smooth (max step per 50 score < 0.05)", maxStep > 0 && maxStep < 0.05);
 
+// 7) question aliens halved: ~1 in 6 of the grid, not the old ~1 in 3 diagonal
+fireMsg("start");
+const aTot = inv.alienCount(), aEdu = inv.eduCount();
+check("question aliens are now ~1 in 6 (was 1 in 3)", aEdu >= 1 && aEdu <= Math.round(aTot / 5),
+  aEdu + " of " + aTot + " aliens ask a word");
+
 console.log(pass ? "\nALL INVADERS REGRESSION TESTS PASSED" : "\nINVADERS TESTS FAILED");
 process.exit(pass ? 0 : 1);

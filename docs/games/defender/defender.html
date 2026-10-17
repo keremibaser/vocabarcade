@@ -29,14 +29,9 @@
   const canvas = document.getElementById("c");
   const ctx = canvas.getContext("2d");
   let W = 800, H = 600;
-  function resize() {
-    const vw = window.innerWidth, vh = window.innerHeight;
-    const ratio = 4 / 3;
-    let w = vw, h = vw / ratio;
-    if (h > vh) { h = vh; w = vh * ratio; }
-    canvas.style.width = w + "px"; canvas.style.height = h + "px";
-    canvas.width = W; canvas.height = H;
-  }
+  // crisp at any screen size: backing store = real on-screen pixels, drawing
+  // stays in logical 800x600 units (see E.fitCanvas)
+  function resize() { E.fitCanvas(canvas, ctx, W, H); }
   window.addEventListener("resize", resize); resize();
 
   // ---- state ----
@@ -112,7 +107,11 @@
     else if (msg.type === E.MSG.ANSWER) onAnswer(msg.correct);
   });
 
+  // the game-over screen stays up for a moment — a stray smartboard tap must not
+  // skip past it (see E.overGuard in engine-common)
+  const OverLock = E.overGuard(2000);
   function startGame() {
+    if (OverLock.live()) return;
     VOCAB = E.shuffle(launch.vocab || []);   // fresh question order on every run / restart
     score = 0; lives = 3; correct = 0; combo = 0; speedLevel = 0;
     scrollX = 0; bullets = []; mbullets = []; particles = []; flashRect = null;
@@ -213,7 +212,7 @@
   }
 
   function gameOver(win) {
-    state = "over"; lastWin = win; bullets = []; mbullets = [];
+    state = "over"; OverLock.arm(); lastWin = win; bullets = []; mbullets = [];
     if (score > highscore) { highscore = score; saveHighscore(highscore); }
     E.send(E.MSG.RESULT, { win, score, correct, total: totalLanders });
     E.send(E.MSG.EVENT, { name: win ? "win" : "lose" });

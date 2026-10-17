@@ -31,20 +31,7 @@
   const canvas = document.getElementById("c");
   const ctx = canvas.getContext("2d");
   let W = 800, H = 600, DPR = 1;
-  function resize() {
-    DPR = Math.min(2, window.devicePixelRatio || 1);
-    // fit a 4:3 play area into the viewport
-    const vw = window.innerWidth, vh = window.innerHeight;
-    const targetRatio = 4 / 3;
-    let w = vw, h = vw / targetRatio;
-    if (h > vh) { h = vh; w = vh * targetRatio; }
-    W = 800; H = 600;
-    canvas.style.width = w + "px";
-    canvas.style.height = h + "px";
-    canvas.width = Math.floor(W * DPR);
-    canvas.height = Math.floor(H * DPR);
-    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  }
+  function resize() { DPR = E.fitCanvas(canvas, ctx, W, H).dpr; }
   window.addEventListener("resize", resize);
   resize();
 
@@ -191,7 +178,11 @@
     else if (msg.type === E.MSG.ANSWER) onAnswer(msg.correct);
   });
 
+  // the game-over screen stays up for a moment — a stray smartboard tap must not
+  // skip past it (see E.overGuard in engine-common)
+  const OverLock = E.overGuard(2000);
   function startGame() {
+    if (OverLock.live()) return;
     VOCAB = E.shuffle(launch.vocab || []);   // fresh question order on every run / restart
     score = 0; lives = 3; correct = 0; combo = 0; speedLevel = 0;
     particles = []; flashRect = null; awaitingAnswer = false;
@@ -241,6 +232,7 @@
 
   function gameOver(win) {
     state = "over";
+    OverLock.arm();
     lastWin = win;
     ball.active = false;
     let newHs = false;

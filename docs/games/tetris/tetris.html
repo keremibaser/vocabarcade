@@ -6,7 +6,10 @@
 <title>Vocab Tetris</title>
 <style>
   html, body { margin: 0; height: 100%; background: #05060f; overflow: hidden; font-family: system-ui, "Segoe UI", Roboto, Arial, sans-serif; }
-  #c { display: block; width: 100%; height: 100%; touch-action: none; object-fit: contain; }
+  /* centre the canvas. fitCanvas() sizes it in px at the board's OWN aspect ratio (820:720);
+     letting CSS force 100% here stretched the playfield on a 16:10 screen. */
+  body { display: flex; align-items: center; justify-content: center; }
+  #c { display: block; touch-action: none; }
 </style>
 </head>
 <body>
@@ -40,15 +43,8 @@
   // ---- canvas (fixed internal resolution, CSS scales to fit — matches breakout pattern) ----
   const canvas = document.getElementById("c");
   const ctx = canvas.getContext("2d");
-  const W = 820, H = 720;   // fixed internal resolution
-  function resize() {
-    const DPR = Math.min(2, window.devicePixelRatio || 1);
-    canvas.style.width = "100%";
-    canvas.style.height = "100%";
-    canvas.width = Math.floor(W * DPR);
-    canvas.height = Math.floor(H * DPR);
-    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  }
+  const W = 820, H = 720;   // fixed internal resolution (its own 820:720 aspect)
+  function resize() { E.fitCanvas(canvas, ctx, W, H); }   // uniform scale — never stretched
   window.addEventListener("resize", resize);
   resize();
 
@@ -346,6 +342,7 @@
 
   function gameOver(win) {
     state = "over";
+    OverLock.arm();
     E.send(E.MSG.RESULT, { win: win, score: score, correct: correct, total: VOCAB.length });
     updateHud();
   }
@@ -546,7 +543,11 @@
   }
 
   // ---- input ----
+  // the game-over screen stays up for a moment — a stray smartboard tap must not
+  // skip past it (see E.overGuard in engine-common)
+  const OverLock = E.overGuard(2000);
   function startGame() {
+    if (OverLock.live()) return;
     VOCAB = E.shuffle(launch.vocab || []);   // fresh question order on every run / restart
     initGrid(); fillBag(); next = pickFromBag();
     score = 0; lives = 3; correct = 0; combo = 0; level = 0; linesCleared = 0;

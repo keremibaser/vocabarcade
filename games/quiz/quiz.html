@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Word Quiz — Test</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #05060f; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  #c { display: block; width: 100vmin; height: 75vmin; max-width: 100vw; max-height: 100vh;
+       touch-action: none; box-shadow: 0 0 60px rgba(0,0,0,0.6); }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script src="../../js/engine-common.js"></script>
+<script>
+/* ============================================================================
+ * Word Quiz — TEST engine
+ * ----------------------------------------------------------------------------
+ * Deliberately NOT a game: no ship, no ball, no lives to lose. It just asks
+ * every word of the active topic exactly once, in a random order, and scores
+ * the answers. It exists to exercise / demo the host's quiz pipeline
+ * (READY -> ASK -> ANSWER -> EVENT -> HUD -> RESULT) end to end.
+ *
+ * Contract with the host (see js/engine-common.js):
+ *   engine -> host : ready, ask {word, correct, options}, hud, event, result
+ *   host -> engine : answer {correct}, pause, resume, quit, start
+ * The host shows the question panel itself, so this engine only paints the
+ * surrounding stage (progress, tallies, and a short ✓/✗ beat between words).
+ * ========================================================================== */
+(function () {
+  "use strict";
+  const E = window.VocabEngine;
+
+  const launch = E.readLaunch() || { vocab: [], fromLang: "Word", toLang: "Meaning", accent: "#364fc7" };
+  let VOCAB = E.shuffle(launch.vocab || []);
+  const FROM = launch.fromLang || "Word";
+  const TO = launch.toLang || "Meaning";
+  const ACCENT = launch.accent || "#364fc7";
+
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+  let W = 800, H = 600;
+  // crisp at any screen size: backing store = real on-screen pixels, drawing
+  // stays in logical 800x600 units (see E.fitCanvas)
+  function resize() { E.fitCanvas(canvas, ctx, W, H); }
+  window.addEventListener("resize", resize); resize();
+
+  // shared SFX; only the "quiz opens" cue lives here — the host owns
+  // correct/wrong/win/lose sounds, so we never double them up
+  const Sfx = E.sfx({ enabled: launch.sound !== false });
+
+  // ---- state ----
+  let state = "menu";          // menu | asking | reveal | over
+  let paused = false;
+  let total = 0;               // how many words this run will ask
+  let asked = 0;               // how many questions have been opened
+  let correct = 0, wrong = 0, combo = 0, bestCombo = 0;
+  let cur = null;              // the word currently in flight
+  let revealT = 0, revealOk = false, revealText = "";
+  let flashA = 0, flashColor = "#22c55e";
+  let particles = [], bgTime = 0;
+  const REVEAL = 0.45;         // short beat between words (the host shows its own 2s verdict)
+  const PASS = 0.5;            // test passes with half or more correct
+
+  function passMark() { return Math.ceil(total * PASS); }
+  function wordsLeft() { return Math.max(0, total - (correct + wrong)); }
+
+  // ---- background: parallax starfield + soft nebula (shared house style) ----
+  const stars = [], haze = [];
+  (function initBackground() {
+    for (let i = 0; i < 150; i++) {
+      stars.push({ x: Math.random() * W, y: Math.random() * H, z: 0.25 + Math.random() * 0.75, p: Math.random() * 6.28 });
+    }
+    haze.push({ x: W * 0.22, y: H * 0.30, r: 320, c: "54,79,199" });
+    haze.push({ x: W * 0.82, y: H * 0.72, r: 360, c: "112,72,232" });
+  })();
+
+  // ---- messaging ----
+  function emitHud() {
+    E.send(E.MSG.HUD, { score: correct, lives: wordsLeft(), correct: correct, combo: combo, level: 1 });
+  }
+  function burst(n, color) {
+    for (let i = 0; i < 22; i++) {
+      const a = Math.random() * 6.28, s = 60 + Math.random() * 200;
+      particles.push({ x: W / 2, y: H * 0.42, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 60, life: 0.5 + Math.random() * 0.5, color: color, r: 2 + Math.random() * 3 });
+    }
+  }
+  function flash(color, a) { flashColor = color; flashA = a; }
+
+  // ---- flow ----
+  // the game-over screen stays up for a moment — a stray smartboard tap must not
+  // skip past it (see E.overGuard in engine-common)
+  const OverLock = E.overGuard(2000);
+  function startGame() {
+    if (OverLock.live()) return;
+    VOCAB = E.shuffle(launch.vocab || []);   // fresh random order on every run / restart
+    total = VOCAB.length; asked = 0;
+    correct = 0; wrong = 0; combo = 0; bestCombo = 0;
+    cur = null; revealT = 0; particles = []; flashA = 0;
+    paused = false;
+    if (total === 0) {                        // nothing to ask — report straight away
+      state = "over";
+      OverLock.arm();
+      E.send(E.MSG.RESULT, { win: false, score: 0, correct: 0, total: 0 });
+      E.send(E.MSG.EVENT, { name: "lose" });
+      return;
+    }
+    askNext();
+  }
+
+  function askNext() {
+    if (asked >= total) { finish(); return; }
+    const entry = VOCAB[asked];
+    asked++;
+    const o = E.buildOptions(entry);
+    cur = { word: entry.from, correct: o.correct, options: o.options };
+    state = "asking";
+    Sfx.edu();
+    E.send(E.MSG.ASK, { word: cur.word, correct: cur.correct, options: cur.options });
+    emitHud();
+  }
+
+  function onAnswer(ok) {
+    if (state !== "asking") return;          // stray answer (e.g. a late host message)
+    if (ok) {
+      correct++; combo++;
+      if (combo > bestCombo) bestCombo = combo;
+      revealOk = true; flash("#22c55e", 0.34); burst(1, "#22c55e");
+      E.send(E.MSG.EVENT, { name: "correct", combo: combo });
+    } else {
+      wrong++; combo = 0;
+      revealOk = false; flash("#ef4444", 0.44); burst(1, "#ef4444");
+      E.send(E.MSG.EVENT, { name: "wrong" });
+    }
+    revealText = cur ? cur.correct : "";
+    state = "reveal"; revealT = REVEAL;
+    emitHud();
+  }
+
+  function finish() {
+    state = "over";
+    OverLock.arm();
+    const win = correct >= passMark();
+    E.send(E.MSG.RESULT, { win: win, score: correct, correct: correct, total: total });
+    E.send(E.MSG.EVENT, { name: win ? "win" : "lose" });
+    flash(win ? "#eab308" : "#ef4444", 0.5);
+  }
+
+  // ---- input: tap / key to start or to run the test again ----
+  function onPointerDown() { if (state === "menu" || state === "over") startGame(); }
+  window.addEventListener("pointerdown", onPointerDown);
+  window.addEventListener("keydown", function (e) {
+    const k = e.key.toLowerCase();
+    if (k === " " || k.indexOf("arrow") === 0) e.preventDefault();
+    if (state === "menu" || state === "over") startGame();
+  });
+
+  E.listen(function (msg) {
+    if (msg.type === E.MSG.START) startGame();
+    else if (msg.type === E.MSG.ANSWER) onAnswer(msg.correct);
+    else if (msg.type === E.MSG.PAUSE) paused = true;
+    else if (msg.type === E.MSG.RESUME) paused = false;
+    else if (msg.type === E.MSG.QUIT) state = "menu";
+  });
+
+  // ---- update ----
+  function update(dt) {
+    bgTime += dt;
+    if (flashA > 0) flashA = Math.max(0, flashA - dt * 1.7);
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 260 * dt; p.life -= dt;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+    if (paused) return;
+    if (state === "reveal") { revealT -= dt; if (revealT <= 0) askNext(); }
+  }
+
+  // ---- drawing helpers ----
+  function rrect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y); ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.lineTo(x + w, y + h - r); ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.lineTo(x + r, y + h); ctx.arcTo(x, y + h, x, y + h - r, r);
+    ctx.lineTo(x, y + r); ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+  }
+  function text(str, x, y, size, color, align, weight) {
+    ctx.fillStyle = color; ctx.textAlign = align || "center"; ctx.textBaseline = "middle";
+    ctx.font = (weight || 700) + " " + size + "px system-ui,'Segoe UI',Arial,sans-serif";
+    ctx.fillText(str, x, y);
+  }
+
+  function drawBackground() {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, "#0a0e22"); g.addColorStop(1, "#05060f");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    // soft nebula: radial gradients only — a flat disc would show a hard edge
+    for (let i = 0; i < haze.length; i++) {
+      const h = haze[i];
+      const rg = ctx.createRadialGradient(h.x, h.y, 0, h.x, h.y, h.r);
+      rg.addColorStop(0, "rgba(" + h.c + ",0.16)");
+      rg.addColorStop(0.55, "rgba(" + h.c + ",0.07)");
+      rg.addColorStop(1, "rgba(" + h.c + ",0)");
+      ctx.fillStyle = rg; ctx.fillRect(h.x - h.r, h.y - h.r, h.r * 2, h.r * 2);
+    }
+    for (let i = 0; i < stars.length; i++) {
+      const s = stars[i];
+      const tw = 0.55 + 0.45 * Math.sin(bgTime * 1.4 + s.p);
+      ctx.globalAlpha = s.z * tw * 0.9;
+      ctx.fillStyle = "#dfe8ff";
+      ctx.fillRect(s.x, s.y, s.z > 0.75 ? 2 : 1, s.z > 0.75 ? 2 : 1);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawHeader() {
+    rrect(40, 26, W - 80, 118, 16);
+    ctx.fillStyle = "rgba(12,16,34,0.72)"; ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.10)"; ctx.lineWidth = 1.5; ctx.stroke();
+
+    text("🧪 WORD QUIZ — TEST", W / 2, 62, 26, "#eef2ff");
+    text("Every word of this topic, once, in a random order — pure questions, no gameplay",
+      W / 2, 92, 14, "#97a3c4", "center", 500);
+
+    // progress bar (the counter gets its own space to its right — no overlap)
+    const bx = 64, bw = W - 190, by = 116, bh = 10;
+    rrect(bx, by, bw, bh, 5);
+    ctx.fillStyle = "rgba(255,255,255,0.08)"; ctx.fill();
+    const frac = total ? Math.min(1, asked / total) : 0;
+    if (frac > 0) {
+      rrect(bx, by, Math.max(6, bw * frac), bh, 5);
+      const pg = ctx.createLinearGradient(bx, 0, bx + bw, 0);
+      pg.addColorStop(0, ACCENT); pg.addColorStop(1, "#22c55e");
+      ctx.fillStyle = pg; ctx.fill();
+    }
+    text(asked + " / " + total, bx + bw + 12, by + 5, 12, "#c7d2fe", "left", 600);
+  }
+
+  function drawStage() {
+    const cy = H * 0.46;
+    if (state === "menu") {
+      text("🧪", W / 2, cy - 96, 64, "#eef2ff");
+      text("A plain multiple-choice drill", W / 2, cy - 26, 24, "#eef2ff");
+      text("It asks each of the " + (VOCAB.length || 0) + " words in this topic once, in random order,",
+        W / 2, cy + 14, 16, "#97a3c4", "center", 500);
+      text("and keeps score. Nothing to dodge — just " + FROM + " → " + TO + ".",
+        W / 2, cy + 40, 16, "#97a3c4", "center", 500);
+      text("Tap the screen (or press Space) to start", W / 2, cy + 96, 18, ACCENT);
+
+    } else if (state === "asking") {
+      text("QUESTION", W / 2, cy - 70, 15, "#7b88ad", "center", 600);
+      text(asked + " / " + total, W / 2, cy - 10, 52, "#eef2ff");
+      text("Answer on the panel above ↑", W / 2, cy + 54, 17, "#97a3c4", "center", 500);
+
+    } else if (state === "reveal") {
+      const col = revealOk ? "#22c55e" : "#ef4444";
+      text(revealOk ? "✓" : "✗", W / 2, cy - 46, 78, col);
+      text(revealOk ? "Correct" : "Wrong", W / 2, cy + 26, 26, col);
+      text("It was: " + revealText, W / 2, cy + 66, 22, "#eef2ff", "center", 600);
+
+    } else if (state === "over") {
+      const win = correct >= passMark();
+      const col = win ? "#eab308" : "#ef4444";
+      text(win ? "🏆 TEST PASSED" : "TEST COMPLETE", W / 2, cy - 86, 30, col);
+      text(correct + " / " + total, W / 2, cy - 16, 52, "#eef2ff");
+      const pct = total ? Math.round(100 * correct / total) : 0;
+      text(pct + "% correct  ·  best streak " + bestCombo, W / 2, cy + 40, 18, "#97a3c4", "center", 500);
+      text(win ? "Half or more right — nice work." : "Aim for " + passMark() + " of " + total + " to pass.",
+        W / 2, cy + 72, 16, "#97a3c4", "center", 500);
+      text("Tap the screen to run the test again", W / 2, cy + 122, 17, ACCENT);
+    }
+  }
+
+  function drawFooter() {
+    text("✓ " + correct + " correct", 80, H - 34, 15, "#22c55e", "left", 600);
+    text("✗ " + wrong + " wrong", 300, H - 34, 15, "#ef4444", "left", 600);
+    text("best streak ×" + bestCombo, W - 80, H - 34, 15, "#8fa0c6", "right", 600);
+  }
+
+  function draw(dt) {
+    drawBackground();
+    drawHeader();
+    drawStage();
+    drawFooter();
+
+    for (let i = 0; i < particles.length; i++) {
+      const p = particles[i];
+      ctx.globalAlpha = Math.max(0, Math.min(1, p.life * 1.6));
+      ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.28); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    if (flashA > 0) {
+      ctx.globalAlpha = flashA * 0.5; ctx.fillStyle = flashColor;
+      ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
+    }
+  }
+
+  // ---- frame loop ----
+  let last = performance.now();
+  function frame(now) {
+    let dt = (now - last) / 1000; last = now;
+    if (dt > 0.05) dt = 0.05;
+    update(dt); draw(dt);
+    requestAnimationFrame(frame);
+  }
+  E.send(E.MSG.READY);
+  requestAnimationFrame(frame);
+
+  // ── test seam (used only by test_quiz.js; inert in normal play) ──
+  if (window.__QUIZ_TEST__) {
+    window.__quiz = {
+      getState: function () { return state; },
+      total: function () { return total; },
+      asked: function () { return asked; },
+      correct: function () { return correct; },
+      wrong: function () { return wrong; },
+      bestCombo: function () { return bestCombo; },
+      current: function () { return cur ? { word: cur.word, correct: cur.correct, options: cur.options.slice() } : null; },
+      vocabOrder: function () { return VOCAB.map(function (e) { return e.from; }); },
+      answer: function (ok) { onAnswer(!!ok); return state; },
+      tick: function (dt) { update(dt); },
+      restart: function () { startGame(); },
+      passMark: function () { return passMark(); },
+      wordsLeft: function () { return wordsLeft(); },
+    };
+  }
+})();
+</script>
+</body>
+</html>

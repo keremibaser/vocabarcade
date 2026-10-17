@@ -41,6 +41,7 @@
     level: document.getElementById("hud-level"), bar: document.getElementById("hud-bar"),
   };
   const quizOverlay = document.getElementById("quiz-overlay");
+  const quizHeader = document.getElementById("quiz-header");
   const quizWord = document.getElementById("quiz-word");
   const quizPrompt = document.getElementById("quiz-prompt");
   const quizOptions = document.getElementById("quiz-options");
@@ -60,6 +61,7 @@
   let editorWords = [];
   let activeGame = null;        // resolved game in the player
   let activeTopicId = null;     // the chosen topic
+  let gameVocab = [];           // words of the game in play (for the option reveal)
 
   // =====================================================================
   // TABS + SCREENS
@@ -203,6 +205,7 @@
   // =====================================================================
   function playResolved(game) {
     activeGame = game;
+    gameVocab = game.vocab || [];
     Sound.launch();
     playerTitle.textContent = game.title;
     playerType.textContent = (game.emoji || "🎮") + " " + (game.topicTitle || "");
@@ -238,6 +241,9 @@
   function showQuiz(ask) {
     pendingAsk = ask;
     quizWord.textContent = ask.word;
+    // a duelling engine can say whose turn it is; plain engines keep the default header
+    quizHeader.textContent = ask.team ? String(ask.team) : "📚 Vocabulary Challenge";
+    quizHeader.style.color = ask.teamColor ? String(ask.teamColor) : "";
     quizPrompt.textContent = "What does this Turkish word mean in English?";
     quizResult.textContent = ""; quizResult.className = "quiz__result"; quizResult.style.display = "none";
     quizOptions.innerHTML = "";
@@ -253,13 +259,35 @@
     requestAnimationFrame(function () { quizOverlay.classList.add("quiz--show"); });
   }
   function closeQuiz() { quizOverlay.style.display = "none"; quizOverlay.classList.remove("quiz--show"); pendingAsk = null; }
+  // English → Turkish for the words of the topic in play, so that once a question
+  // is answered we can show the meaning of EVERY option (the ones not picked too).
+  function turkishFor(en) {
+    const key = String(en == null ? "" : en).trim().toLowerCase();
+    for (let i = 0; i < gameVocab.length; i++) {
+      const w = gameVocab[i] || {};
+      if (String(w.correct == null ? "" : w.correct).trim().toLowerCase() === key) {
+        return String(w.from == null ? "" : w.from);
+      }
+    }
+    return "";
+  }
   function answerQuiz(btn, choice, correct) {
     const isRight = choice === correct;
     quizOptions.querySelectorAll(".quiz__opt").forEach(function (o) {
       o.disabled = true;
-      const label = o.querySelector("span:last-child").textContent;
+      const label = o.children[1].textContent;      // the option word (child 2, after the letter)
       if (label === String(correct)) o.classList.add("quiz__opt--right");
       else if (o === btn && !isRight) o.classList.add("quiz__opt--wrong");
+    });
+    // the question is settled now — reveal what every option means in Turkish
+    quizOptions.querySelectorAll(".quiz__opt").forEach(function (o) {
+      if (o.querySelector(".quiz__tr")) return;
+      const tr = turkishFor(o.children[1].textContent);
+      if (!tr) return;
+      const s = document.createElement("span");
+      s.className = "quiz__tr";
+      s.textContent = tr;
+      o.appendChild(s);
     });
     quizResult.textContent = isRight ? "✓ Correct! Well done!" : "✗ Wrong — it was: " + correct;
     quizResult.className = "quiz__result " + (isRight ? "quiz__result--ok" : "quiz__result--bad");

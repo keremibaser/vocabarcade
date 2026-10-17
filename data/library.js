@@ -6,8 +6,10 @@
  * vocab (Turkish -> English) supplied at play time. So ANY topic loads into
  * ANY game — no duplication.
  *
- * `ready:true` games have a working engine; `ready:false` are catalog entries
- * shown as "soon" so the 20-game host you asked for is visible and extensible.
+ * `ready:true` games have a working engine. `ready:false` entries are placeholders
+ * for games we have NOT built: they are deliberately NOT shown in the menu (a card
+ * that cannot be played just wastes the class's attention). The one exception kept
+ * on purpose is `whack` — Word Whack-a-Mole, the next engine we plan to build.
  *
  * game entry: { id, title, engine, emoji, accent, ready, blurb }
  */
@@ -24,19 +26,12 @@
     { id: "defender", title: "Vocab Defender", engine: "defender", emoji: "🛡️", accent: "#12b886", ready: true, blurb: "Shoot saucers; ❓ ones quiz you, clear them all to win." },
     { id: "tetris",    title: "Word Tetris",     engine: "tetris",    emoji: "🧩", accent: "#7048e8", ready: true,  blurb: "Clear lines by matching meanings." },
     { id: "asteroids", title: "Meaningoids",     engine: "asteroids", emoji: "☄️", accent: "#1098ad", ready: true,  blurb: "Blast asteroids; ❓ ones quiz you, clear them all to win." },
-    { id: "memory",    title: "Memory Match",    engine: "memory",    emoji: "🃏", accent: "#c2255c", ready: false, blurb: "Flip pairs of matching words." },
-    { id: "hangman",   title: "Hangman",         engine: "hangman",   emoji: "🪢", accent: "#e8590c", ready: false, blurb: "Guess the English word letter by letter." },
+    { id: "raiders",   title: "Word Raiders",    engine: "raiders",   emoji: "🛸", accent: "#f76707", ready: true,  blurb: "A side-scrolling fighter — the guns fire on their own at raiders streaming in from the right." },
+    { id: "quiz",      title: "Word Quiz — Test", engine: "quiz",     emoji: "🧪", accent: "#364fc7", ready: true,  blurb: "Test only: asks every word of the topic once, in a random order — pure multiple-choice drill, no gameplay." },
+    { id: "wordwall",  title: "Word Wall",       engine: "wordwall",  emoji: "📋", accent: "#1971c2", ready: true,  blurb: "Big-screen word list: number, English and Turkish on one line — scroll when the list is long." },
+    { id: "wheel",     title: "Word Wheel",      engine: "wheel",     emoji: "🎡", accent: "#f59f00", ready: true,  blurb: "Spin the wheel: every word of the topic is a slice — answer whatever it lands on." },
+    { id: "tug",       title: "Word Tug-of-War", engine: "tug",       emoji: "⚔️", accent: "#e8590c", ready: true,  blurb: "Two teams, one rope: answer right to haul it your way — miss and the other team steals the word." },
     { id: "whack",     title: "Word Whack-a-Mole", engine: "whack",    emoji: "🔨", accent: "#d6336c", ready: false, blurb: "Whack the correct translation." },
-    { id: "runner",    title: "Word Runner",     engine: "runner",    emoji: "🏃", accent: "#5c940d", ready: false, blurb: "Jump and answer on the run." },
-    { id: "typing",    title: "Typing Typer",    engine: "typing",    emoji: "⌨️", accent: "#1c7ed6", ready: false, blurb: "Type the English meaning fast." },
-    { id: "falling",   title: "Falling Words",   engine: "falling",   emoji: "🍂", accent: "#0b7285", ready: false, blurb: "Catch the correct falling word." },
-    { id: "quiz",      title: "Quick Quiz",      engine: "quiz",      emoji: "❓", accent: "#364fc7", ready: false, blurb: "Straight multiple-choice drill." },
-    { id: "spelling",  title: "Spell Bee",       engine: "spelling",  emoji: "🐝", accent: "#e03131", ready: false, blurb: "Spell the English word out loud/typed." },
-    { id: "crossword", title: "Mini Crossword",  engine: "crossword", emoji: "📰", accent: "#9c36b5", ready: false, blurb: "Fill the grid with meanings." },
-    { id: "wordfind",  title: "Word Search",     engine: "wordfind",  emoji: "🔎", accent: "#0c8599", ready: false, blurb: "Find the English words hidden in the grid." },
-    { id: "puzzle",    title: "Slide Puzzle",    engine: "puzzle",    emoji: "🧠", accent: "#6741d9", ready: false, blurb: "Slide tiles to reveal the word." },
-    { id: "darts",     title: "Word Darts",      engine: "darts",     emoji: "🎯", accent: "#c92a2a", ready: false, blurb: "Aim and answer for bullseyes." },
-    { id: "race",      title: "Word Race",       engine: "race",      emoji: "🏁", accent: "#2b8a3e", ready: false, blurb: "Race to the answer first." },
   ];
 
   window.VOCAB_GAMES = GAMES;

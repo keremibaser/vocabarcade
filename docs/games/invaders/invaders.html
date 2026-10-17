@@ -28,14 +28,9 @@
   const canvas = document.getElementById("c");
   const ctx = canvas.getContext("2d");
   let W = 800, H = 600;
-  function resize() {
-    const vw = window.innerWidth, vh = window.innerHeight;
-    const ratio = 4 / 3;
-    let w = vw, h = vw / ratio;
-    if (h > vh) { h = vh; w = vh * ratio; }
-    canvas.style.width = w + "px"; canvas.style.height = h + "px";
-    canvas.width = W; canvas.height = H;
-  }
+  // crisp at any screen size: backing store = real on-screen pixels, drawing
+  // stays in logical 800x600 units (see E.fitCanvas)
+  function resize() { E.fitCanvas(canvas, ctx, W, H); }
   window.addEventListener("resize", resize); resize();
 
   // ---- sound effects (shared implementation via engine-common) ----
@@ -66,10 +61,18 @@
     aliens = []; killed = 0;
     const totalW = ALIEN_COLS * ALIEN_W + (ALIEN_COLS - 1) * ALIEN_GAP_X;
     const startX = (W - totalW) / 2 + ALIEN_W / 2;
+    // question aliens: take the old (c+r)%3 diagonal and keep a random HALF of it, so roughly
+    // one alien in six asks a word (was one in three) — and which ones changes every game.
+    const diag = [];
+    for (let r = 0; r < ALIEN_ROWS; r++)
+      for (let c = 0; c < ALIEN_COLS; c++)
+        if ((c + r) % 3 === 0) diag.push(r * ALIEN_COLS + c);
+    const pick = E.shuffle(diag).slice(0, Math.round(diag.length / 2));
+    const eduSet = {}; for (let i = 0; i < pick.length; i++) eduSet[pick[i]] = true;
     let vi = 0;
     for (let r = 0; r < ALIEN_ROWS; r++) {
       for (let c = 0; c < ALIEN_COLS; c++) {
-        const isEdu = VOCAB.length > 0 && ((c + r) % 3 === 0);
+        const isEdu = VOCAB.length > 0 && eduSet[r * ALIEN_COLS + c] === true;
         const a = {
           x: startX + c * (ALIEN_W + ALIEN_GAP_X),
           y: ALIEN_TOP + r * (ALIEN_H + ALIEN_GAP_Y),
@@ -138,7 +141,11 @@
     else if (msg.type === E.MSG.ANSWER) onAnswer(msg.correct);
   });
 
+  // the game-over screen stays up for a moment — a stray smartboard tap must not
+  // skip past it (see E.overGuard in engine-common)
+  const OverLock = E.overGuard(2000);
   function startGame() {
+    if (OverLock.live()) return;
     VOCAB = E.shuffle(launch.vocab || []);   // fresh question order on every run / restart
     score = 0; lives = 3; correct = 0; combo = 0; speedLevel = 0;
     ship = makeShip(); bullets = []; particles = []; flashRect = null;
@@ -179,7 +186,7 @@
   }
 
   function gameOver(win) {
-    state = "over"; bullets = []; lastWin = win;
+    state = "over"; OverLock.arm(); bullets = []; lastWin = win;
     if (score > highscore) { highscore = score; saveHighscore(highscore); }
     E.send(E.MSG.RESULT, { win, score, correct, total: totalAliens });
     E.send(E.MSG.EVENT, { name: win ? "win" : "lose" });
@@ -567,6 +574,8 @@
     window.__inv = {
       getState: function () { return state; },
       lives: function () { return lives; },
+      eduCount: function () { return aliens.filter(function (a) { return a.edu; }).length; },
+      alienCount: function () { return aliens.length; },
       marchSpeed: function () { return marchSpeed(); },
       setScore: function (s) { score = s; },
       shootOnce: function () { ship.cd = 0; shoot(); return bullets.length ? bullets[bullets.length - 1].vy : null; },

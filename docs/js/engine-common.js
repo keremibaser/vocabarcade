@@ -265,8 +265,48 @@
     };
   }
 
+  // ---- crisp canvas fitting (shared by every engine) ----
+  // Engines draw in logical W x H units, but the canvas is stretched to fill the
+  // screen. If the backing store stays at W x H while CSS displays it larger, every
+  // glyph gets upscaled and looks blurry on a smartboard/projector. So size the
+  // backing store to the REAL on-screen pixel size (CSS px * devicePixelRatio) and
+  // scale the context back to logical units — drawing code keeps using W/H as-is.
+  function fitCanvas(canvas, ctx, W, H) {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const ratio = W / H;
+    let cw = vw, ch = vw / ratio;
+    if (ch > vh) { ch = vh; cw = vh * ratio; }
+    canvas.style.width = cw + "px";
+    canvas.style.height = ch + "px";
+    canvas.width = Math.max(1, Math.round(cw * dpr));
+    canvas.height = Math.max(1, Math.round(ch * dpr));
+    const sx = canvas.width / W, sy = canvas.height / H;
+    if (ctx && ctx.setTransform) ctx.setTransform(sx, 0, 0, sy, 0, 0);
+    return { sx: sx, sy: sy, cssW: cw, cssH: ch, dpr: dpr };
+  }
+
+  // ---- game-over screen lock ----
+  // A game-over screen has to stay up for a moment: on a smartboard a stray tap
+  // would otherwise skip straight past it. Each engine arms the lock when the game
+  // ends and asks live() at the top of startGame(), so nothing can restart the run
+  // for that long. Tests set window.__OVER_GUARD_OFF__ to restart immediately.
+  function overGuard(ms) {
+    var until = 0;
+    return {
+      arm: function () { until = Date.now() + (ms || 2000); },
+      live: function () {
+        if (typeof window !== "undefined" && window.__OVER_GUARD_OFF__) return false;
+        return Date.now() < until;
+      },
+      left: function () { return Math.max(0, until - Date.now()); },
+    };
+  }
+
   window.VocabEngine = {
     MSG: MSG,
+    overGuard: overGuard,
+    fitCanvas: fitCanvas,
     readLaunch: readLaunch,
     decodePayload: decodePayload,
     encodePayload: encodePayload,

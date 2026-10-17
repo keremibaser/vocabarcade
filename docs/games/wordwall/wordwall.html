@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Word Wall</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #05060f; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  #c { display: block; width: 100vmin; height: 75vmin; max-width: 100vw; max-height: 100vh;
+       touch-action: none; box-shadow: 0 0 60px rgba(0,0,0,0.6); }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script src="../../js/engine-common.js"></script>
+<script>
+/* ============================================================================
+ * Word Wall — big-display word list
+ * ----------------------------------------------------------------------------
+ * Not a game and not a quiz: it puts every word of the active topic on screen in
+ * the biggest type that still fits, Turkish and English together, so a whole
+ * class can read it from the back of the room. When the list is taller than the
+ * screen it scrolls: drag with a finger, use the mouse wheel, or ↑ ↓ / PageUp /
+ * PageDown / Home / End on a keyboard.
+ *
+ * Deliberately NEVER asks a question and never emits a RESULT — the words stay in
+ * topic order (not shuffled), because a wall chart should be predictable.
+ * ========================================================================== */
+(function () {
+  "use strict";
+  const E = window.VocabEngine;
+
+  const launch = E.readLaunch() || { vocab: [], fromLang: "Word", toLang: "Meaning", accent: "#1971c2" };
+  const WORDS = (launch.vocab || []);          // NOTE: topic order on purpose — no shuffling
+  const FROM = launch.fromLang || "Word";
+  const TO = launch.toLang || "Meaning";
+  const ACCENT = launch.accent || "#1971c2";
+
+  // Word Wall colours. The topic accent blue is far too dark to read on the navy
+  // starfield, so the Turkish line gets its own bright amber (and a faint glow) —
+  // it has to be legible from the back of a classroom. English stays near-white.
+  const EN_COLOR = "#f4f7ff";
+  const TR_COLOR = "#ffd43b";
+  const NUM_COLOR = "#9aa8c9";
+
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+  let W = 800, H = 600;
+
+  // ---- geometry + scroll state (all of it declared BEFORE the first layout() call) ----
+  const HEAD_H = 92;            // fixed title band at the top
+  const PAD = 20, GAP = 8;
+  let cols = 1, rows = 0, cardW = 0, cardH = 0, contentH = 0;
+  let viewH = H - HEAD_H, maxScroll = 0;
+  let trSize = 21, enSize = 26;   // one line per word, so these stay readable
+  // column geometry for the single-line rows (number | English | Turkish)
+  let numSize = 15, numSlot = 30, gapNumEn = 12, gapEnTr = 14, sidePad = 20;
+  let maxEn = 0, maxTr = 0, enX = 0, trX = 0;
+  let scrollY = 0;                // target (moved by input)
+  let viewY = 0;                  // animated position actually drawn
+  let dragging = false, dragY = 0;
+
+  function clampScroll(y) { return Math.max(0, Math.min(maxScroll, y)); }
+  function scrollBy(d) { scrollY = clampScroll(scrollY + d); }
+
+  // ONE column, ONE line per word:  [number]  English  Turkish
+  // The number sits immediately before the English word, and both languages share
+  // the line so many more words fit. Entries are aligned into columns (like a table)
+  // and every size shrinks together if the widest pair would overflow the row.
+  function layout() {
+    const n = WORDS.length;
+    cols = 1;
+    rows = Math.max(1, n);
+    cardW = W - PAD * 2;
+    cardH = 48;                  // a single line needs far less height than two
+    contentH = PAD + rows * (cardH + GAP) + PAD;
+    viewH = H - HEAD_H;
+    maxScroll = Math.max(0, contentH - viewH);
+    scrollY = clampScroll(scrollY);
+
+    const avail = cardW - sidePad * 2 - numSlot - gapNumEn - gapEnTr;
+    let guard = 0;
+    while (guard++ < 40) {
+      maxEn = widest(WORDS, "correct", enSize);
+      maxTr = widest(WORDS, "from", trSize);
+      if (maxEn + maxTr <= avail || enSize <= 15) break;
+      enSize -= 1;
+      trSize = Math.max(12, trSize - 1);
+    }
+    enX = sidePad + numSlot + gapNumEn;
+    trX = enX + maxEn + gapEnTr;
+  }
+
+  // crisp at any screen size: backing store = real on-screen pixels, drawing
+  // stays in logical 800x600 units (see E.fitCanvas). layout() must run after any
+  // size change because the scroll range depends on it.
+  function resize() { E.fitCanvas(canvas, ctx, W, H); layout(); }
+  window.addEventListener("resize", resize); resize();
+
+  // ---- input: drag / wheel / keys ----
+  function onPointerDown(e) {
+    dragging = true; dragY = e.clientY || 0;
+  }
+  function onPointerMove(e) {
+    if (!dragging) return;
+    const y = e.clientY;
+    if (!isFinite(y)) return;                 // partial events (harness / odd touch)
+    scrollBy((dragY - y) * 0.9);              // drag up = see further down
+    dragY = y;
+  }
+  function onPointerUp() { dragging = false; }
+  window.addEventListener("pointerdown", onPointerDown);
+  window.addEventListener("pointermove", onPointerMove);
+  window.addEventListener("pointerup", onPointerUp);
+  window.addEventListener("pointercancel", onPointerUp);
+
+  window.addEventListener("wheel", function (e) {
+    scrollBy((e.deltaY || 0) * 0.9);
+    if (e.preventDefault) e.preventDefault();
+  }, { passive: false });
+
+  window.addEventListener("keydown", function (e) {
+    const k = String(e.key || "").toLowerCase();
+    let used = true;
+    if (k === "arrowdown" || k === "s") scrollBy(70);
+    else if (k === "arrowup" || k === "w") scrollBy(-70);
+    else if (k === "pagedown" || k === " ") scrollBy(viewH * 0.85);
+    else if (k === "pageup") scrollBy(-viewH * 0.85);
+    else if (k === "home") scrollY = 0;
+    else if (k === "end") scrollY = maxScroll;
+    else used = false;
+    if (used && e.preventDefault) e.preventDefault();
+  });
+
+  E.listen(function (msg) {
+    if (msg.type === E.MSG.START) { scrollY = 0; viewY = 0; }        // re-show from the top
+    else if (msg.type === E.MSG.QUIT) { dragging = false; }
+  });
+
+  // a display has no score, lives or combo — send zeros so the host bar stays honest
+  E.send(E.MSG.HUD, { score: 0, lives: 0, correct: 0, combo: 0, level: 0 });
+
+  // ---- background (same house style: starfield + soft nebula) ----
+  const stars = [], haze = [];
+  (function initBackground() {
+    for (let i = 0; i < 130; i++) {
+      stars.push({ x: Math.random() * W, y: Math.random() * H, z: 0.25 + Math.random() * 0.75, p: Math.random() * 6.28 });
+    }
+    haze.push({ x: W * 0.18, y: H * 0.25, r: 300, c: "25,113,194" });
+    haze.push({ x: W * 0.85, y: H * 0.8, r: 340, c: "112,72,232" });
+  })();
+  let bgTime = 0;
+
+  // ---- helpers ----
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y); ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.lineTo(x + w, y + h - r); ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.lineTo(x + r, y + h); ctx.arcTo(x, y + h, x, y + h - r, r);
+    ctx.lineTo(x, y + r); ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+  }
+  function font(size, weight) { return (weight || 800) + " " + size + "px system-ui,'Segoe UI',Arial,sans-serif"; }
+  function text(str, x, y, size, color, align, weight) {
+    ctx.fillStyle = color; ctx.textAlign = align || "center"; ctx.textBaseline = "middle";
+    ctx.font = font(size, weight);
+    ctx.fillText(str, x, y);
+  }
+  // the two lines of a card, in the order they are drawn: ENGLISH on top,
+  // the TURKISH word underneath (the wall reads top-down, one word per row)
+  function lines(w) {
+    return {
+      top: String(w.correct == null ? "" : w.correct),
+      bottom: String(w.from == null ? "" : w.from),
+    };
+  }
+  // shrink only as far as a long word needs, so short words stay huge
+  function fitSize(str, maxW, preferred, min) {
+    let s = preferred;
+    while (s > min) {
+      ctx.font = font(s);
+      if (ctx.measureText(str).width <= maxW) break;
+      s -= 2;
+    }
+    return s;
+  }
+  // widest rendered string of one field across the whole topic, at a given size
+  function widest(list, key, size) {
+    ctx.font = font(size);
+    let m = 0;
+    for (let i = 0; i < list.length; i++) {
+      const s = String(list[i][key] == null ? "" : list[i][key]);
+      const w = ctx.measureText(s).width;
+      if (w > m) m = w;
+    }
+    return m;
+  }
+
+  // ---- update ----
+  function update(dt) {
+    bgTime += dt;
+    const k = Math.min(1, dt * 14);
+    viewY += (scrollY - viewY) * k;
+    if (Math.abs(scrollY - viewY) < 0.3) viewY = scrollY;
+  }
+
+  // ---- draw ----
+  function drawBackground() {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, "#0a0f20"); g.addColorStop(1, "#05060f");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    for (let i = 0; i < haze.length; i++) {
+      const h = haze[i];
+      const rg = ctx.createRadialGradient(h.x, h.y, 0, h.x, h.y, h.r);
+      rg.addColorStop(0, "rgba(" + h.c + ",0.15)");
+      rg.addColorStop(0.55, "rgba(" + h.c + ",0.06)");
+      rg.addColorStop(1, "rgba(" + h.c + ",0)");
+      ctx.fillStyle = rg; ctx.fillRect(h.x - h.r, h.y - h.r, h.r * 2, h.r * 2);
+    }
+    for (let i = 0; i < stars.length; i++) {
+      const s = stars[i];
+      const tw = 0.55 + 0.45 * Math.sin(bgTime * 1.2 + s.p);
+      ctx.globalAlpha = s.z * tw * 0.85;
+      ctx.fillStyle = "#dfe8ff";
+      ctx.fillRect(s.x, s.y, s.z > 0.75 ? 2 : 1, s.z > 0.75 ? 2 : 1);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawHeader() {
+    ctx.fillStyle = "rgba(8,12,26,0.86)";
+    ctx.fillRect(0, 0, W, HEAD_H);
+    text("📋 WORD WALL", PAD + 4, HEAD_H / 2 - 10, 26, "#eef2ff", "left");
+    text(WORDS.length + " words · " + FROM + " → " + TO +
+      (maxScroll > 0 ? " · drag or ↑ ↓ to scroll" : " · all of them fit on screen"),
+      PAD + 4, HEAD_H / 2 + 20, 14, "#93a2c4", "left", 500);
+    if (maxScroll > 0) {
+      text("▼ scroll", W - PAD, HEAD_H / 2, 14, "#7f8db3", "right", 600);
+    }
+    ctx.strokeStyle = "rgba(255,255,255,0.10)"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, HEAD_H); ctx.lineTo(W, HEAD_H); ctx.stroke();
+  }
+
+  function drawCards() {
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, HEAD_H, W, viewH); ctx.clip();
+    ctx.translate(0, HEAD_H - viewY);
+
+    for (let i = 0; i < WORDS.length; i++) {
+      const c = i % cols, r = Math.floor(i / cols);
+      const x = PAD + c * (cardW + GAP);
+      const y = PAD + r * (cardH + GAP);
+
+      // skip cards that are fully outside the visible band (cheap + keeps big lists fast)
+      const top = y, bottom = y + cardH;
+      if (bottom < viewY - 40 || top > viewY + viewH + 40) continue;
+
+      roundRect(x, y, cardW, cardH, 12);
+      ctx.fillStyle = "rgba(255,255,255,0.05)"; ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,0.10)"; ctx.lineWidth = 1.5; ctx.stroke();
+      // accent stripe on the left edge of every card
+      roundRect(x + 1.5, y + 1.5, 5, cardH - 3, 2.5);
+      ctx.fillStyle = ACCENT; ctx.globalAlpha = 0.85; ctx.fill(); ctx.globalAlpha = 1;
+
+      // single line per word:  [number]  English  Turkish
+      const cy = y + cardH / 2;
+      const ln = lines(WORDS[i] || {});
+      text(String(i + 1), x + enX - gapNumEn, cy, numSize, NUM_COLOR, "right", 700);
+      text(ln.top, x + enX, cy, enSize, EN_COLOR, "left", 800);
+      // Turkish: bright amber plus a soft glow so it never sinks into the background
+      ctx.save();
+      ctx.shadowColor = "rgba(255,212,59,0.45)";
+      ctx.shadowBlur = 10;
+      text(ln.bottom, x + trX, cy, trSize, TR_COLOR, "left", 800);
+      ctx.restore();
+    }
+    ctx.restore();
+
+    // soft fade at the top/bottom of the scrolling band so cards do not look cut
+    if (maxScroll > 0) {
+      const ft = ctx.createLinearGradient(0, HEAD_H, 0, HEAD_H + 18);
+      ft.addColorStop(0, "rgba(5,6,15,0.9)"); ft.addColorStop(1, "rgba(5,6,15,0)");
+      ctx.fillStyle = ft; ctx.fillRect(0, HEAD_H, W, 18);
+      const fb = ctx.createLinearGradient(0, H - 18, 0, H);
+      fb.addColorStop(0, "rgba(5,6,15,0)"); fb.addColorStop(1, "rgba(5,6,15,0.9)");
+      ctx.fillStyle = fb; ctx.fillRect(0, H - 18, W, 18);
+    }
+  }
+
+  function drawScrollbar() {
+    if (maxScroll <= 0) return;
+    const trackX = W - 12, trackY = HEAD_H + 6, trackH = viewH - 12;
+    roundRect(trackX, trackY, 5, trackH, 2.5);
+    ctx.fillStyle = "rgba(255,255,255,0.07)"; ctx.fill();
+    const frac = viewH / contentH;
+    const thumbH = Math.max(28, trackH * frac);
+    const thumbY = trackY + (trackH - thumbH) * (viewY / maxScroll);
+    roundRect(trackX, thumbY, 5, thumbH, 2.5);
+    ctx.fillStyle = ACCENT; ctx.globalAlpha = 0.85; ctx.fill(); ctx.globalAlpha = 1;
+  }
+
+  function draw() {
+    drawBackground();
+    if (WORDS.length === 0) {
+      drawHeader();
+      text("This topic has no words yet", W / 2, H / 2 - 10, 30, "#eef2ff");
+      text("Add some with ⚙ Edit words, then play this again.", W / 2, H / 2 + 34, 20, "#93a2c4", "center", 500);
+      return;
+    }
+    drawCards();
+    drawHeader();
+    drawScrollbar();
+  }
+
+  // ---- frame loop ----
+  let last = performance.now();
+  function frame(now) {
+    let dt = (now - last) / 1000; last = now;
+    if (dt > 0.05) dt = 0.05;
+    update(dt); draw();
+    requestAnimationFrame(frame);
+  }
+  E.send(E.MSG.READY);
+  requestAnimationFrame(frame);
+
+  // ── test seam (used only by test_wordwall.js; inert in normal play) ──
+  if (window.__WALL_TEST__) {
+    window.__wall = {
+      total: function () { return WORDS.length; },
+      words: function () { return WORDS.map(function (w) { return { tr: w.from, en: w.correct }; }); },
+      cols: function () { return cols; },
+      rows: function () { return rows; },
+      cardH: function () { return cardH; },
+      lines: function (i) { return lines(WORDS[i] || {}); },
+      colors: function () { return { en: EN_COLOR, tr: TR_COLOR, num: NUM_COLOR }; },
+      row: function (i) {
+        const l = lines(WORDS[i] || {});
+        return { num: i + 1, en: l.top, tr: l.bottom };
+      },
+      contentH: function () { return contentH; },
+      viewH: function () { return viewH; },
+      maxScroll: function () { return maxScroll; },
+      scrollY: function () { return scrollY; },
+      viewY: function () { return viewY; },
+      scrollTo: function (y) { scrollY = clampScroll(y); return scrollY; },
+      scrollBy: function (d) { scrollBy(d); return scrollY; },
+      drag: function (fromY, toY) { onPointerDown({ clientY: fromY }); onPointerMove({ clientY: toY }); onPointerUp(); return scrollY; },
+      tick: function (dt) { update(dt); },
+      visible: function () {
+        // indices whose card intersects the visible band (test aid)
+        const out = [];
+        for (let i = 0; i < WORDS.length; i++) {
+          const r = Math.floor(i / cols), y = PAD + r * (cardH + GAP);
+          if (y + cardH >= viewY && y <= viewY + viewH) out.push(i);
+        }
+        return out;
+      },
+    };
+  }
+})();
+</script>
+</body>
+</html>

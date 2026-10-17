@@ -67,6 +67,7 @@ const windowObj = {
   parent: { postMessage() {} },
   VocabEngine: null,
   __AST_TEST__: true,
+  __OVER_GUARD_OFF__: true,   // tests restart instantly (see test_overguard.js)
 };
 sandbox.window = windowObj;
 sandbox.document = {

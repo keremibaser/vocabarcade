@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Word Raiders</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #05060f; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  #c { display: block; width: 100vmin; height: 75vmin; max-width: 100vw; max-height: 100vh;
+       touch-action: none; box-shadow: 0 0 60px rgba(0,0,0,0.6); cursor: crosshair; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script src="../../js/engine-common.js"></script>
+<script>
+/*
+ * Word Raiders — a side-scrolling shoot 'em up (R-Type / Gradius shaped).
+ *   - the player flies a fighter on the left; the guns fire by THEMSELVES
+ *   - raiders stream in from the right in three flavours: straight, weaving, and
+ *     divers that slide toward the player's row
+ *   - movement is VERTICAL ONLY: drag a finger up/down on the screen (smartboard),
+ *     or use the arrow keys / W-S on a desktop
+ *   - every so often a golden ❓ raider carries a word: shooting it pauses the game
+ *     and asks the host for a quiz (the host owns the popup and the vocabulary)
+ *   - all words answered => WIN; lose all lives => GAME OVER
+ * House rules: shared E.sfx, smooth score-driven difficulty (no level jumps),
+ * sub-stepped bullets, radial-gradient haze (never hard-edged discs), and the
+ * word pool is re-shuffled on every start.
+ */
+(function () {
+  "use strict";
+  const E = window.VocabEngine;
+
+  const launch = E.readLaunch() || { vocab: [], fromLang: "Word", toLang: "Meaning", accent: "#f76707" };
+  const Sfx = E.sfx({ enabled: launch.sound !== false });
+  let VOCAB = E.shuffle(launch.vocab || []);
+  const FROM = launch.fromLang || "Word";
+  const TO = launch.toLang || "Meaning";
+  const ACCENT = launch.accent || "#f76707";
+
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+  let W = 800, H = 600;
+  // crisp at any screen size: backing store = real on-screen pixels, drawing
+  // stays in logical 800x600 units (see E.fitCanvas)
+  function resize() { E.fitCanvas(canvas, ctx, W, H); }
+  window.addEventListener("resize", resize); resize();
+
+  // ---- tuning ----
+  const PX = 132;            // player's fixed column
+  const SHIP_R = 15;
+  const FIRE_CD = 0.21;      // automatic fire interval
+  const BULLET_SPEED = 640;
+  const MOVE_SPD = 430;      // keyboard up/down speed
+  const FOLLOW_SPD = 720;    // how fast the ship eases to the finger
+  const ENEMY_BASE = 138;    // raider speed at difficulty 0 — they come in fast
+  const DIFF_CAP = 2600;
+  const SPEED_THR = [140, 340, 600, 900, 1250];
+
+  // ---- state ----
+  let state = "menu";
+  let score = 0, lives = 3, correct = 0, combo = 0, speedLevel = 0;
+  let ship = null, bullets = [], enemies = [], particles = [], flashRect = null;
+  let quizEnemy = null, awaitingAnswer = false;
+  let fireCd = 0, targetY = H / 2, hoverY = H / 2;
+  let waveQueue = [], enemiesToSpawn = 0, spawnTimer = 0, waveNo = 0, waveSize = 0, waveEdu = 0;
+  let vocabIdx = 0, wordsLeft = 0, answeredIdx = null;
+  let bgTime = 0;
+  const keys = {};
+  const HS_KEY = "vocabarcade.raiders.highscore";
+  let highscore = 0, lastWin = false;
+  try { highscore = parseInt(localStorage.getItem(HS_KEY) || "0", 10) || 0; } catch (_) {}
+  function saveHighscore(s) { try { localStorage.setItem(HS_KEY, String(s)); } catch (_) {} }
+
+  // difficulty ramps SMOOTHLY with score — raiders fly faster and arrive closer together
+  function diff() { return Math.min(1, score / DIFF_CAP); }
+
+  function emitHud() { E.send(E.MSG.HUD, { score, lives, correct, combo, level: speedLevel }); }
+  function flash(color, a) { flashRect = { color, a }; }
+  function addScore(p) {
+    score += p;
+    if (speedLevel < SPEED_THR.length && score >= SPEED_THR[speedLevel]) { speedLevel++; flash("#f76707", 0.24); }
+    emitHud();
+  }
+
+  // ---- input: vertical only, finger-first ----
+  const keysDown = function () { return keys["arrowup"] || keys["w"] || keys["arrowdown"] || keys["s"]; };
+  function canvasCoords(clientX, clientY) {
+    const r = canvas.getBoundingClientRect();
+    const cw = r.width || W, ch = r.height || H;
+    return { x: (clientX - r.left) * (W / cw), y: (clientY - r.top) * (H / ch) };
+  }
+  function clampY(y) { return Math.max(26, Math.min(H - 26, y)); }
+  function setPointerY(clientX, clientY) {
+    const p = canvasCoords(clientX, clientY);
+    if (!isFinite(p.y)) return;                 // partial events (harness / odd touch)
+    targetY = clampY(p.y); hoverY = targetY;
+  }
+  function onPointerDown(e) {
+    if (state === "menu" || state === "over") { startGame(); return; }
+    if (state === "playing") setPointerY(e.clientX, e.clientY);
+  }
+  function onPointerMove(e) {
+    if (state !== "playing") return;
+    setPointerY(e.clientX, e.clientY);
+  }
+  window.addEventListener("keydown", function (e) {
+    const k = e.key.toLowerCase();
+    keys[k] = true;
+    if (k === " " || k.indexOf("arrow") === 0) e.preventDefault();
+    if (state === "menu" || state === "over") startGame();
+  });
+  window.addEventListener("keyup", function (e) { keys[e.key.toLowerCase()] = false; });
+  window.addEventListener("pointerdown", onPointerDown);
+  window.addEventListener("pointermove", onPointerMove);
+
+  E.listen(function (msg) {
+    if (msg.type === E.MSG.START) startGame();
+    else if (msg.type === E.MSG.PAUSE) { if (state === "playing") state = "paused"; }
+    else if (msg.type === E.MSG.RESUME) { if (state === "paused") state = "playing"; }
+    else if (msg.type === E.MSG.QUIT) state = "menu";
+    else if (msg.type === E.MSG.ANSWER) onAnswer(msg.correct);
+  });
+
+  // ---- word handling: every word is asked once before any repeats ----
+  function nextWord() {
+    if (VOCAB.length === 0) return null;
+    for (let k = 0; k < VOCAB.length; k++) {
+      const i = (vocabIdx + k) % VOCAB.length;
+      if (!answeredIdx.has(i)) { vocabIdx = (i + 1) % VOCAB.length; return { i: i, w: VOCAB[i] }; }
+    }
+    const i = vocabIdx % VOCAB.length; vocabIdx = (i + 1) % VOCAB.length;
+    return { i: i, w: VOCAB[i] };
+  }
+
+  // ---- lifecycle ----
+  // the game-over screen stays up for a moment — a stray smartboard tap must not
+  // skip past it (see E.overGuard in engine-common)
+  const OverLock = E.overGuard(2000);
+  function startGame() {
+    if (OverLock.live()) return;
+    VOCAB = E.shuffle(launch.vocab || []);   // fresh question order on every run / restart
+    score = 0; lives = 3; correct = 0; combo = 0; speedLevel = 0;
+    bullets = []; enemies = []; particles = []; flashRect = null;
+    awaitingAnswer = false; quizEnemy = null;
+    vocabIdx = 0; answeredIdx = new Set(); wordsLeft = VOCAB.length;
+    waveQueue = []; enemiesToSpawn = 0; spawnTimer = 0; waveNo = 0;
+    ship = { x: PX, y: H / 2, r: SHIP_R, invuln: 1.2, alive: true };
+    targetY = ship.y; hoverY = ship.y; fireCd = 0.2;
+    spawnWave();
+    state = "playing";
+    emitHud();
+  }
+
+  function spawnWave() {
+    waveNo++;
+    const n = Math.min(20, 9 + waveNo);                                  // big waves: 9 raiders, +1 per wave
+    const q = VOCAB.length > 0 ? Math.max(1, Math.min(n, Math.round(n / 8))) : 0;   // one ❓ raider per ~8
+    waveSize = n; waveEdu = q;
+    const slots = E.shuffle(Array.from({ length: n }, function (_, i) { return i; })).slice(0, q);
+    waveQueue = [];
+    for (let i = 0; i < n; i++) waveQueue.push({ edu: slots.indexOf(i) !== -1 });
+    enemiesToSpawn = n;
+    spawnTimer = 0.35;
+  }
+
+  function spawnInterval() { return 0.65 - diff() * 0.30; }              // 0.65s -> 0.35s between raiders
+
+  function spawnRaider(slot) {
+    const d = diff();
+    const r = 15;
+    const t = Math.random() < 0.34 ? 1 : (Math.random() < 0.30 + d * 0.25 ? 2 : 0);
+    const y = 54 + Math.random() * (H - 130);
+    const e = {
+      x: W + 46, y: y, baseY: y, r: r, t: t, alive: true, immune: 0,
+      speed: (ENEMY_BASE + Math.random() * 50) * (1 + d * 0.85) * (t === 2 ? 1.3 : 1),
+      phase: Math.random() * 6.28, freq: 1.5 + Math.random() * 1.4,
+      amp: t === 1 ? 34 + Math.random() * 30 : (t === 0 ? 7 : 0),
+      edu: false, word: "", correct: "", options: [], vocabI: -1,
+    };
+    if (slot && slot.edu && VOCAB.length > 0) {
+      const nw = nextWord();
+      if (nw) {
+        e.edu = true; e.word = nw.w.from; e.correct = nw.w.correct;
+        e.options = E.buildOptions(nw.w).options; e.vocabI = nw.i; e.speed *= 0.86;
+      }
+    }
+    enemies.push(e);
+  }
+
+  function spawnParticles(x, y, color, count) {
+    count = count || 12;
+    for (let i = 0; i < count; i++) {
+      const ang = Math.random() * Math.PI * 2, sp = 40 + Math.random() * 150;
+      particles.push({ x: x, y: y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp,
+                       life: 0.45, age: 0, color: color, size: 2 + Math.random() * 3 });
+    }
+  }
+
+  function fire() {
+    bullets.push({ x: ship.x + SHIP_R + 6, y: ship.y, vx: BULLET_SPEED, r: 3.5, life: 1.6 });
+    ship.recoil = 0.06;
+    Sfx.shoot();
+  }
+
+  function loseLife() {
+    combo = 0; lives--; flash("#ef4444", 0.42); ship.invuln = 1.7;
+    Sfx.hit();
+    emitHud();
+    if (lives <= 0) { ship.alive = false; gameOver(false); }
+  }
+
+  function clearWaveIfDone() {
+    if (enemiesToSpawn > 0 || enemies.length > 0) return false;
+    if (wordsLeft > 0) { spawnWave(); return false; }     // more words to learn -> next wave
+    gameOver(true); return true;                          // every word answered + wave cleared
+  }
+
+  function onBulletHit(e) {
+    if (e.edu) {
+      awaitingAnswer = true; quizEnemy = e; state = "paused";
+      E.send(E.MSG.ASK, { word: e.word, correct: e.correct, options: e.options });
+      Sfx.edu();
+    } else {
+      e.alive = false; spawnParticles(e.x, e.y, "#9aa6c4", 10); addScore(15);
+      Sfx.explode();
+    }
+  }
+
+  function onAnswer(isCorrect) {
+    awaitingAnswer = false;
+    const e = quizEnemy; quizEnemy = null;
+    if (!e) { state = "playing"; return; }
+    if (isCorrect) {
+      correct++; combo++; addScore(20);
+      if (combo >= 2) addScore((combo - 1) * 10);
+      flash("#22c55e", 0.3);
+      E.send(E.MSG.EVENT, { name: "correct" });
+      if (e.vocabI >= 0 && !answeredIdx.has(e.vocabI)) { answeredIdx.add(e.vocabI); }
+      wordsLeft = Math.max(0, VOCAB.length - answeredIdx.size);
+      e.alive = false; spawnParticles(e.x, e.y, "#ffd56b", 14);
+      Sfx.explode();
+      emitHud();
+      if (clearWaveIfDone()) return;         // answered everything -> win
+      state = "playing";
+    } else {
+      combo = 0; lives--; flash("#ef4444", 0.42); Sfx.hit();
+      emitHud();
+      if (lives <= 0) { gameOver(false); return; }
+      // the raider survives but goes briefly immune, so auto-fire can't
+      // instantly re-ask the same word before the player can think
+      e.immune = 1.6; e.phase = 0;
+      state = "playing";
+    }
+  }
+
+  function gameOver(win) {
+    state = "over"; OverLock.arm(); lastWin = win;
+    if (score > highscore) { highscore = score; saveHighscore(score); }
+    E.send(E.MSG.EVENT, { name: win ? "win" : "lose" });
+    E.send(E.MSG.RESULT, { win: win, score: score, correct: correct, total: VOCAB.length });
+  }
+
+  // ---- background (parallax starfield + soft nebula + a ringed world) ----
+  const stars = [], haze = [], streaks = [];
+  let planetX = 640;      // starts already in view so the scene is never empty
+  function initBackground() {
+    stars.length = 0;
+    for (let i = 0; i < 190; i++) {
+      const layer = i % 3;
+      stars.push({ x: Math.random() * W, y: Math.random() * H,
+                   r: layer === 0 ? 0.7 : (layer === 1 ? 1.1 : 1.6), layer: layer,
+                   sp: layer === 0 ? 16 : (layer === 1 ? 34 : 62), tw: Math.random() * 6.28 });
+    }
+    haze.length = 0;
+    for (let i = 0; i < 9; i++) {
+      haze.push({ x: Math.random() * W, y: Math.random() * H, r: 74 + Math.random() * 92,
+                  c: i % 3, a: 0.05 + Math.random() * 0.055 });
+    }
+    streaks.length = 0;
+    for (let i = 0; i < 16; i++) {
+      streaks.push({ x: Math.random() * W, y: Math.random() * H, len: 26 + Math.random() * 70,
+                     sp: 260 + Math.random() * 340, a: 0.05 + Math.random() * 0.10 });
+    }
+  }
+  initBackground();
+
+  function wrapX(x, span) { let s = ((x % span) + span) % span; return s; }
+
+  function drawBackground(dt) {
+    bgTime += dt;
+    ctx.fillStyle = "#05060f"; ctx.fillRect(0, 0, W, H);
+    // nebula haze: radial gradients so they fade out (never hard-edged discs)
+    for (let i = 0; i < haze.length; i++) {
+      const h = haze[i];
+      const hx = wrapX(h.x - bgTime * 4, W + 320) - 160;
+      const col = h.c === 0 ? "38,64,124" : (h.c === 1 ? "74,34,96" : "20,58,84");
+      const g = ctx.createRadialGradient(hx, h.y, 0, hx, h.y, h.r);
+      g.addColorStop(0, "rgba(" + col + "," + h.a + ")");
+      g.addColorStop(1, "rgba(" + col + ",0)");
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(hx, h.y, h.r, 0, Math.PI * 2); ctx.fill();
+    }
+    // distant ringed world, drifting slowly left
+    planetX -= 6 * dt;
+    if (planetX < -320) planetX = W + 260;
+    drawPlanet(planetX, 158, 92);
+    // speed streaks (the sideways sense of motion)
+    for (let i = 0; i < streaks.length; i++) {
+      const s = streaks[i];
+      s.x -= s.sp * dt;
+      if (s.x < -s.len) { s.x = W + Math.random() * 120; s.y = Math.random() * H; }
+      ctx.fillStyle = "rgba(160,200,255," + s.a + ")";
+      ctx.fillRect(s.x, s.y, s.len, 1.2);
+    }
+    // stars, wrapped, twinkling
+    for (let i = 0; i < stars.length; i++) {
+      const s = stars[i];
+      s.x -= s.sp * dt;
+      if (s.x < -2) { s.x = W + 2; s.y = Math.random() * H; }
+      const tw = 0.55 + 0.45 * Math.sin(bgTime * 2.2 + s.tw);
+      ctx.fillStyle = "rgba(226,240,255," + (s.layer === 0 ? 0.42 : 0.8) * tw + ")";
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  function drawPlanet(x, y, r) {
+    function ring(alpha, lw, rad) {
+      ctx.strokeStyle = "rgba(178,214,246," + alpha + ")"; ctx.lineWidth = lw;
+      ctx.beginPath(); ctx.arc(0, 0, r * rad, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.save(); ctx.translate(x, y); ctx.rotate(-0.34); ctx.scale(1, 0.28);
+    ring(0.34, 7, 1.42);                 // ring, far half
+    ring(0.20, 2.5, 1.62);
+    ctx.restore();
+    // the world itself — bright enough to actually read against the dark
+    ctx.globalAlpha = 0.88;
+    const g = ctx.createRadialGradient(x - r * 0.38, y - r * 0.38, r * 0.1, x, y, r);
+    g.addColorStop(0, "#8fb4de"); g.addColorStop(0.5, "#43678f"); g.addColorStop(1, "#16233a");
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(-0.34); ctx.scale(1, 0.28);
+    ctx.beginPath(); ctx.rect(-r * 2.2, 0, r * 4.4, r * 2.2); ctx.clip();   // near half only
+    ring(0.52, 7, 1.42);
+    ring(0.34, 2.5, 1.62);
+    ctx.restore();
+  }
+
+  // ---- drawing the actors ----
+  function drawShip() {
+    if (!ship || !ship.alive) return;
+    const blink = ship.invuln > 0 && (Math.floor(ship.invuln * 12) % 2 === 0);
+    if (blink) return;
+    ctx.save(); ctx.translate(ship.x, ship.y);
+    const fl = 0.7 + 0.3 * Math.sin(performance.now() / 45);
+    // twin engine flames (behind the ship = -x)
+    ctx.fillStyle = "rgba(120,220,255," + 0.42 * fl + ")";
+    ctx.beginPath(); ctx.moveTo(-SHIP_R * 0.9, -SHIP_R * 0.42); ctx.lineTo(-SHIP_R * 0.9, SHIP_R * 0.42);
+    ctx.lineTo(-SHIP_R - 19 * fl, 0); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "rgba(255,238,158," + 0.85 * fl + ")";
+    ctx.beginPath(); ctx.moveTo(-SHIP_R * 0.9, -SHIP_R * 0.18); ctx.lineTo(-SHIP_R * 0.9, SHIP_R * 0.18);
+    ctx.lineTo(-SHIP_R - 8 * fl, 0); ctx.closePath(); ctx.fill();
+    // hull, nose to the right
+    ctx.fillStyle = "#e8eef8";
+    ctx.beginPath();
+    ctx.moveTo(SHIP_R * 1.35, 0);
+    ctx.lineTo(-SHIP_R * 0.5, -SHIP_R * 0.92);
+    ctx.lineTo(-SHIP_R * 1.0, -SHIP_R * 0.34);
+    ctx.lineTo(-SHIP_R * 0.52, 0);
+    ctx.lineTo(-SHIP_R * 1.0, SHIP_R * 0.34);
+    ctx.lineTo(-SHIP_R * 0.5, SHIP_R * 0.92);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = "#9fb0d8"; ctx.lineWidth = 1.4; ctx.stroke();
+    // accent nose stripe
+    ctx.fillStyle = ACCENT;
+    ctx.beginPath();
+    ctx.moveTo(SHIP_R * 1.35, 0); ctx.lineTo(-SHIP_R * 0.18, -SHIP_R * 0.34);
+    ctx.lineTo(-SHIP_R * 0.18, SHIP_R * 0.34); ctx.closePath(); ctx.fill();
+    // cockpit
+    ctx.fillStyle = "#7dd3fc";
+    ctx.beginPath(); ctx.ellipse(SHIP_R * 0.24, 0, SHIP_R * 0.32, SHIP_R * 0.24, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.7)"; ctx.lineWidth = 1; ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawRaider(e) {
+    const flick = e.immune > 0 && (Math.floor(e.immune * 14) % 2 === 0);
+    if (flick) return;
+    const pal = e.edu
+      ? { body: "#f5c542", dark: "#7a5a00", eye: "#fff6c9", glow: "255,214,80" }
+      : e.t === 2 ? { body: "#ff5964", dark: "#7a1520", eye: "#ffd7d7", glow: "255,89,100" }
+      : e.t === 1 ? { body: "#b57bff", dark: "#3b1d70", eye: "#e9dcff", glow: "181,123,255" }
+      : { body: "#9aa6c4", dark: "#2b3450", eye: "#e4ebff", glow: "154,166,196" };
+    ctx.save(); ctx.translate(e.x, e.y);
+    // exhaust trail (it flies left, so the wake is on the right)
+    ctx.fillStyle = "rgba(" + pal.glow + ",0.22)";
+    ctx.beginPath(); ctx.moveTo(e.r * 0.7, -e.r * 0.4); ctx.lineTo(e.r * 0.7, e.r * 0.4);
+    ctx.lineTo(e.r * 1.9, 0); ctx.closePath(); ctx.fill();
+    // swept hull, nose to the left
+    ctx.fillStyle = pal.body;
+    ctx.beginPath();
+    ctx.moveTo(-e.r * 1.32, 0);
+    ctx.lineTo(e.r * 0.34, -e.r * 0.62);
+    ctx.lineTo(e.r * 1.05, -e.r * 0.96);
+    ctx.lineTo(e.r * 0.42, -e.r * 0.18);
+    ctx.lineTo(e.r * 0.42, e.r * 0.18);
+    ctx.lineTo(e.r * 1.05, e.r * 0.96);
+    ctx.lineTo(e.r * 0.34, e.r * 0.62);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = pal.dark; ctx.lineWidth = 1.3; ctx.stroke();
+    // canopy / eye
+    ctx.fillStyle = pal.eye;
+    ctx.beginPath(); ctx.ellipse(-e.r * 0.34, 0, e.r * 0.3, e.r * 0.2, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    // the ❓ halo marks a word-carrier
+    if (e.edu) {
+      const pr = 6 + (Math.sin(e.phase) + 1) * 1.6;
+      const halo = 0.22 + 0.34 * (Math.sin(e.phase * 2) + 1) * 0.5;
+      ctx.strokeStyle = "rgba(255,210,40," + halo + ")"; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.arc(e.x, e.y, pr + 7, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = "rgba(255,210,40,0.95)";
+      ctx.beginPath(); ctx.arc(e.x, e.y, pr, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#1a1200"; ctx.font = "bold 12px system-ui";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText("?", e.x, e.y + 1);
+    }
+  }
+
+  // ---- update ----
+  function update(dt) {
+    if (state !== "playing") return;
+
+    // player: keys win, otherwise ease toward the finger's row
+    if (ship && ship.alive) {
+      if (keys["arrowup"] || keys["w"]) { ship.y = clampY(ship.y - MOVE_SPD * dt); targetY = ship.y; }
+      else if (keys["arrowdown"] || keys["s"]) { ship.y = clampY(ship.y + MOVE_SPD * dt); targetY = ship.y; }
+      else {
+        const dy = targetY - ship.y;
+        const step = Math.min(Math.abs(dy), FOLLOW_SPD * dt);
+        ship.y = clampY(ship.y + Math.sign(dy) * step);
+      }
+      if (ship.invuln > 0) ship.invuln -= dt;
+      fireCd -= dt;
+      if (fireCd <= 0) { fire(); fireCd = FIRE_CD; }
+    }
+
+    // spawn the next raider of this wave (and, once it gets busy, a second one in the same volley)
+    if (enemiesToSpawn > 0) {
+      spawnTimer -= dt;
+      if (spawnTimer <= 0) {
+        spawnRaider(waveQueue.shift()); enemiesToSpawn--;
+        if (diff() > 0.3 && enemiesToSpawn > 0 && Math.random() < 0.4) { spawnRaider(waveQueue.shift()); enemiesToSpawn--; }
+        spawnTimer = spawnInterval();
+      }
+    }
+
+    // bullets: sub-stepped so a 640 px/s shot can never tunnel through a raider
+    for (let i = bullets.length - 1; i >= 0; i--) {
+      const b = bullets[i];
+      const travel = b.vx * dt;
+      const steps = Math.max(1, Math.ceil(Math.abs(travel) / 8));
+      let hit = false;
+      for (let s = 0; s < steps && !hit; s++) {
+        b.x += travel / steps;
+        for (let k = 0; k < enemies.length; k++) {
+          const e = enemies[k];
+          if (!e.alive || e.immune > 0) continue;
+          if (Math.hypot(b.x - e.x, b.y - e.y) < e.r + b.r) { hit = true; onBulletHit(e); break; }
+        }
+      }
+      b.life -= dt;
+      if (hit || b.life <= 0 || b.x > W + 24) bullets.splice(i, 1);
+      if (state !== "playing") return;      // a quiz opened or the game ended
+    }
+
+    // raiders
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      const e = enemies[i];
+      if (!e.alive) { enemies.splice(i, 1); continue; }
+      if (e.immune > 0) e.immune -= dt;
+      e.phase += e.freq * dt;
+      e.x -= e.speed * dt;
+      if (e.t === 1) e.y = e.baseY + Math.sin(e.phase) * e.amp;
+      else if (e.t === 2 && ship) {
+        const dy = ship.y - e.y, sp = 78 * (1 + diff() * 0.5);
+        e.y += Math.sign(dy) * Math.min(Math.abs(dy), sp * dt);
+      } else e.y = e.baseY + Math.sin(e.phase) * e.amp;
+      e.y = Math.max(26, Math.min(H - 26, e.y));
+
+      // body-check the fighter
+      if (ship && ship.alive && ship.invuln <= 0 && Math.hypot(e.x - ship.x, e.y - ship.y) < e.r + ship.r * 0.85) {
+        e.alive = false; spawnParticles(e.x, e.y, "#9aa6c4", 12);
+        loseLife();
+        if (state !== "playing") return;
+        continue;
+      }
+      if (e.x < -60) {                       // flew past the fighter
+        if (e.edu) spawnParticles(-30, e.y, "#ffd56b", 6);
+        enemies.splice(i, 1);
+      }
+    }
+
+    // particles + flash
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.age += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 60 * dt;
+      if (p.age >= p.life) particles.splice(i, 1);
+    }
+    if (flashRect) { flashRect.a *= 0.92; if (flashRect.a < 0.01) flashRect = null; }
+
+    if (clearWaveIfDone()) return;
+  }
+
+  // ---- draw ----
+  function draw(dt) {
+    drawBackground(dt);
+
+    for (let i = 0; i < enemies.length; i++) drawRaider(enemies[i]);
+
+    // bullets — glowing tracers
+    for (let i = 0; i < bullets.length; i++) {
+      const b = bullets[i];
+      ctx.fillStyle = "rgba(180,255,235,0.35)";
+      ctx.fillRect(b.x - 7, b.y - 3, 14, 6);
+      ctx.fillStyle = "#dcfff0";
+      ctx.fillRect(b.x - 4, b.y - 1.6, 8, 3.2);
+    }
+
+    drawShip();
+
+    for (let i = 0; i < particles.length; i++) {
+      const p = particles[i];
+      ctx.globalAlpha = Math.max(0, 1 - p.age / p.life);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    }
+    ctx.globalAlpha = 1;
+    if (flashRect && flashRect.a > 0.01) { ctx.fillStyle = hexA(flashRect.color, flashRect.a); ctx.fillRect(0, 0, W, H); }
+
+    // HUD
+    ctx.fillStyle = "rgba(255,255,255,0.9)"; ctx.font = "bold 16px system-ui";
+    ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillText("Score " + score, 14, 12);
+    ctx.textAlign = "right"; ctx.fillText("♥ " + lives, W - 14, 12);
+    ctx.fillStyle = "#bfe6a0"; ctx.textAlign = "center"; ctx.fillText("✓ " + correct + "  " + FROM, W / 2, 12);
+    if (combo >= 2) { ctx.fillStyle = "#ffcf33"; ctx.fillText("🔥 x" + combo, W / 2, 32); }
+    if (wordsLeft > 0) { ctx.fillStyle = "#cdd6f4"; ctx.fillText("📚 words left: " + wordsLeft, W / 2, 52); }
+
+    if (state === "menu") {
+      drawScreen("🛸 Word Raiders",
+        ["Fly your fighter — the guns fire on their own!",
+         highscore > 0 ? "🏆 Best Score: " + highscore : "No high score yet — be the first!",
+         "Move up / down: drag your finger (or ↑ ↓ / W S)",
+         "❓ raiders ask a word · answer them all to win"],
+        "Tap the screen or press any key to start", ACCENT);
+    } else if (state === "over") {
+      const newHs = score >= highscore && score > 0;
+      drawScreen(lastWin ? "🏆 YOU WIN!" : "💀 GAME OVER",
+        [(lastWin ? "The raiders are beaten and the words are learned!" : "Your fighter was shot down!"),
+         "📖 Words correct: " + correct,
+         "Final Score: " + score + (newHs ? "   🏆 NEW!" : ""),
+         highscore > 0 ? "🏆 Best: " + highscore : ""].filter(Boolean),
+        "↺ Play again  (tap screen or press any key)", lastWin ? "#ffe08a" : "#ff8a8a");
+    }
+  }
+
+  function drawScreen(title, lines, footer, titleColor) {
+    ctx.fillStyle = "rgba(3,5,12,0.72)"; ctx.fillRect(0, 0, W, H);
+    const pw = 480, ph = 300, px = (W - pw) / 2, py = (H - ph) / 2;
+    roundRect(px, py, pw, ph, 16);
+    ctx.fillStyle = "rgba(13,17,28,0.97)"; ctx.fill();
+    ctx.lineWidth = 3; ctx.strokeStyle = ACCENT; ctx.stroke();
+    ctx.textAlign = "center";
+    ctx.fillStyle = titleColor || ACCENT; ctx.font = "bold 33px system-ui, sans-serif";
+    ctx.fillText(title, W / 2, py + 56);
+    ctx.fillStyle = "#dfe6ff"; ctx.font = "15px system-ui, sans-serif";
+    let y = py + 108;
+    for (let i = 0; i < lines.length; i++) { ctx.fillText(lines[i], W / 2, y); y += 28; }
+    ctx.fillStyle = ACCENT; ctx.font = "bold 17px system-ui, sans-serif";
+    ctx.fillText(footer, W / 2, py + ph - 34);
+    ctx.textAlign = "left";
+  }
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath(); ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+  function hexA(hex, a) {
+    const h = hex.replace("#", "");
+    return "rgba(" + parseInt(h.substr(0, 2), 16) + "," + parseInt(h.substr(2, 2), 16) + "," +
+           parseInt(h.substr(4, 2), 16) + "," + a + ")";
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    let dt = (now - last) / 1000; last = now;
+    if (dt > 0.05) dt = 0.05;
+    update(dt); draw(dt); requestAnimationFrame(frame);
+  }
+  E.send(E.MSG.READY);
+
+  // ── test seam (used only by test_raiders.js / verify_game.js; inert in normal play) ──
+  if (window.__RAI_TEST__) {
+    window.__rai = {
+      getState: function () { return state; },
+      lives: function () { return lives; },
+      score: function () { return score; },
+      setScore: function (s) { score = s; },
+      diff: function () { return diff(); },
+      waveNo: function () { return waveNo; },
+      enemies: function () { return enemies.filter(function (e) { return e.alive; }).length; },
+      immuneCount: function () { return enemies.filter(function (e) { return e.alive && e.immune > 0; }).length; },
+      onlyImmune: function () { enemies = enemies.filter(function (e) { return e.alive && e.immune > 0; }); },
+      clearEnemies: function () { enemies = []; },
+      freezeSpawns: function () { enemiesToSpawn = 0; waveQueue = []; },
+      wavePlan: function () { return { size: waveSize, edu: waveEdu, no: waveNo }; },
+      maxX: function () { let m = -1; for (let i = 0; i < enemies.length; i++) if (enemies[i].alive && enemies[i].x > m) m = enemies[i].x; return m; },
+      ship: function () { return ship ? { x: ship.x, y: ship.y, r: ship.r } : null; },
+      setShipY: function (y) { if (ship) { ship.y = clampY(y); targetY = ship.y; } },
+      targetY: function () { return targetY; },
+      bullets: function () { return bullets.length; },
+      wordsLeft: function () { return wordsLeft; },
+      vocabOrder: function () { return VOCAB.map(function (w) { return w.from; }); },
+      restart: function () { startGame(); },
+      tick: function (dt) { update(dt == null ? 0.016 : dt); },
+      // force the next raider on screen to be an educational one, then hit it
+      forceEdu: function (isCorrect) {
+        if (state !== "playing") return state;
+        let e = enemies.find(function (x) { return x.alive && !x.edu; }) || enemies.find(function (x) { return x.alive; });
+        if (!e) return state;
+        const nw = nextWord();
+        e.edu = true;
+        if (nw) { e.word = nw.w.from; e.correct = nw.w.correct; e.options = E.buildOptions(nw.w).options; e.vocabI = nw.i; }
+        e.immune = 0;
+        awaitingAnswer = true; quizEnemy = e; state = "paused";
+        onAnswer(isCorrect);
+        return state;
+      },
+    };
+  }
+
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

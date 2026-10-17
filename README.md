@@ -36,6 +36,39 @@ visible and extensible.
   replaces it. Visually the scene is a drifting star field with twinkling depth layers, soft nebula glow,
   a cratered moon and the odd comet; the rocks are cratered with a lit and a shadowed side, and the
   ❓ rocks glow gold.
+- **Raiders (side-scrolling shoot 'em up)** — the fighter sits on the left and **its guns fire by
+  themselves**; raiders stream in from the right in three flavours (straight, weaving, and divers
+  that slide toward your row). Movement is **vertical only: drag your finger up / down** on the
+  screen (or ↑ ↓ / W S). Every so often a golden ❓ raider carries a word — shooting it pauses the
+  game and asks the question. Correct → it's destroyed + score + combo; wrong → −1 life and that
+  raider goes briefly **immune** (it flashes) so the automatic fire cannot instantly re-ask the same
+  word. Answer every word and clear the wave to WIN. Difficulty ramps smoothly with score (raiders
+  fly faster and arrive closer together) and each wave sends one more raider.
+- **Quiz — Test (deliberately not a game)** — the plain drill, kept as the reference for how the
+  host/engine contract should behave: it asks **every word of the topic exactly once, in a random
+  order**, keeps score, and passes with half or more correct. No ship to fly, no lives to lose —
+  just `READY → ASK → ANSWER → EVENT → HUD → RESULT` end to end.
+- **Word Wall (big display, not a game)** — puts the whole topic on screen **one line per word:
+  number, English, Turkish** (e.g. `1 apple elma`), so the class can read it from the back of the room.
+  Rows are aligned into columns like a table and run straight down (never side by side); when the list
+  is taller than the screen it **scrolls** (finger drag, mouse wheel, or ↑ ↓ / PageUp / PageDown /
+  Home / End) with a scrollbar and a soft fade at the band edges. It stays in **topic order** (never
+  shuffled), asks nothing, and reports no score.
+- **Word Wheel** — a prize wheel with **every word of the topic as a slice**. Tap the screen (or press
+  Space) to spin it: the slice that stops under the pointer is the word you have to answer, and the host
+  then asks it on the usual panel. A correct answer **retires that slice** (it greys out and the word
+  stays legible); a wrong one costs a life and leaves the slice on the wheel. Clear every slice to WIN,
+  run out of 3 lives and it's game over. The wheel only ever lands on words that are still open, so a
+  run always moves forward.
+- **Word Tug-of-War (two teams)** — a classroom duel. One rope, two teams (🔴 KIRMIZI vs 🔵 MAVİ), and
+  every word of the topic is a question: **a correct answer hauls the rope one pull toward your side**.
+  Miss, and the **other team gets one steal attempt on the same word** — answer it and they take the pull
+  instead. Three in a row is a **power pull** (two at once). Haul the knot past your own marker to win.
+  Teams take turns, so the class always knows who is up: the panel names the team
+  (`ASK.team` / `ASK.teamColor`) and the arena glows in that team's colour. After every haul the arena
+  **holds the new rope position for a couple of seconds** (with a thin countdown bar) before the next word
+  is asked, so the class can see what the answer did. When the topic runs out the words are reshuffled and
+  the duel continues rather than stopping on a leader.
 - **Pac-Man** — one ghost is an educational ❓ ghost; touching it pauses the game and asks the word.
   Correct → the ghost respawns and the word advances; wrong → −1 life (the word comes up again on the
   next ❓ ghost). Power pellets frighten ghosts (eat them for points). Win = clear every dot AND answer
@@ -103,7 +136,8 @@ Wiring per game: **Breakout** wall + paddle bounce `hit`, brick `break_`, ball l
 **Tetris** piece `lock`, line clear `clear`, ❓ line `edu`; **Asteroids** fire `shoot`, rock
 `explode`, ❓ rock `edu`; **Flappy** flap `flap`, pipe pass `pickup`, ❓ orb `edu`, crash `hit`;
 **Pac-Man** dot `blip`, pellet `pickup`, ❓ ghost `edu`, ghost eaten `explode`, death (falling tone);
-**Defender** fire `shoot`, saucer `explode`, ❓ saucer `edu`, turret lost `explode`.
+**Defender** fire `shoot`, saucer `explode`, ❓ saucer `edu`, turret lost `explode`;
+**Raiders** fire `shoot`, raider `explode`, ❓ raider `edu`, fighter hit `hit`.
 
 The host sends its 🔊/🔇 state in the launch payload (`sound`), so muting the host mutes the engines
 too. Win/lose/correct/wrong stay host-side (driven by the engine's event messages) so they are never
@@ -111,6 +145,42 @@ doubled up. Every SFX call is a safe no-op when Web Audio is unavailable or auto
 
 Everything is saved to `localStorage` (topics, active topic, scores). **＋ New topic** adds
 a blank topic; **↺ Reset all** (see below) restores the 20 default topics.
+
+### Crisp rendering (every engine)
+
+The engines draw in **logical units** (800×600, or 820×720 for Tetris) and let CSS stretch the canvas
+to the screen. If the backing store stayed at the logical size while being displayed ~1333 px wide,
+every glyph was upscaled and looked **blurry** on a smartboard or projector. So every engine now sizes
+its canvas through the shared `E.fitCanvas(canvas, ctx, W, H)`: the backing store is set to the **real
+on-screen pixel size** (CSS px × `devicePixelRatio`) and the context is scaled back to logical units,
+so drawing code is unchanged but the pixels land 1:1.
+
+`fitCanvas` also **preserves each engine's aspect ratio** — it picks the largest W:H box that fits the
+window and centres it, so the x and y scale factors are always equal. Two traps worth remembering:
+comparing against `getBoundingClientRect()` counts a CSS border (snake/pacman have a 3 px one), so check
+`canvas.width >= canvas.clientWidth`; and never size a canvas by its container instead (an earlier
+`fitCanvasElement` did, which stretched Tetris's 820:720 playfield on a 16:10 screen at unequal
+`setTransform` x/y scales). Verify in a browser with:
+
+    canvas.width >= canvas.clientWidth            // crisp
+    Math.abs(ctx.getTransform().a - ctx.getTransform().d) < 0.01   // not stretched
+
+### The question overlay (every engine)
+
+When an engine asks a question, the host draws the shared overlay: the Turkish word as the prompt and
+four English options (A–D). **Once the question is answered, every option gets its own Turkish meaning
+in amber beside it** — including the choices the player did not pick — so the whole class sees what all
+four words mean, not only the right one. The Turkish is added only *after* the answer is settled, so it
+can never give the answer away. (Amber = "Turkish" everywhere in the app, same as the Word Wall.)
+
+### Game-over screens hold for two seconds
+
+Every engine arms `E.overGuard(2000)` in its `gameOver()` and asks `live()` at the top of
+`startGame()`, so **taps and key presses are ignored for two seconds** after a run ends — on a
+smartboard a stray touch used to skip the result screen instantly. Gating `startGame()` (rather than
+each input handler) covers every path at once: canvas taps, key presses and on-screen buttons.
+Tests set `window.__OVER_GUARD_OFF__` so they can restart immediately; `test_overguard.js` covers the
+real lock with the real clock and checks the wiring in all ten game engines.
 
 ## Host polish (shared, zero engine edits)
 These three features are driven entirely by the messages every engine already emits
@@ -153,13 +223,18 @@ HTTP server avoids that.)
 index.html              host UI (Topics + Games tabs, active-topic banner, player, editor)
 css/styles.css          theming
 data/topics.js          seed of 20 Turkish→English topics (content)
-data/library.js         seed of 20 game TYPES (engines; topic-agnostic)
+data/library.js          the game TYPES (engines; topic-agnostic) — 13 playable + whack-a-mole planned
 js/store.js             localStorage: topics, active topic, scores + distractor autofill
 js/engine-common.js     shared host<->engine message protocol
 js/app.js               host controller (topic-first flow, player, editor)
 games/breakout/         breakout engine
 games/invaders/         invaders engine
 games/tetris/           tetris engine (quiz on line clear)
+games/raiders/          side-scrolling shoot 'em up engine (auto-fire, vertical movement)
+games/quiz/             plain question drill — asks every word once in random order (test engine)
+games/wordwall/         big-display word list — huge Turkish + English, scrolls when long
+games/wheel/            prize wheel — every word is a slice; spin it and answer what it lands on
+games/tug/              two-team rope duel — answer right to haul the rope; miss and it can be stolen
 verify_game.js          headless no-crash + quiz-roundtrip test (breakout/invaders/tetris)
 test_tetris.js          deterministic test: line-clear -> quiz -> clear/wrong-answer paths
 ```
@@ -174,6 +249,12 @@ test_tetris.js          deterministic test: line-clear -> quiz -> clear/wrong-an
 - **New game engine:** copy `games/breakout/breakout.html` to `games/<type>/<type>.html`,
   keep the `VocabEngine` contract, add `{ id, title, engine:"<type>", emoji, accent, ready:true,
   blurb }` to `data/library.js`.
+
+## Not built yet
+The menu only lists games that can actually be played, plus `whack` (Word Whack-a-Mole), which is the
+**next engine on the roadmap** and is kept as a visible placeholder. Ideas parked for later, in no order:
+Memory Match, Hangman, Word Runner, Typing Typer, Falling Words, Spell Bee, Mini Crossword, Word Search,
+Slide Puzzle, Word Darts, Word Race.
 
 ## Verify (no browser needed)
 `node verify_game.js games/breakout/breakout.html games/invaders/invaders.html`

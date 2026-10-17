@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Word Wheel</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #05060f; overflow: hidden; font-family: system-ui, "Segoe UI", Roboto, Arial, sans-serif; }
+  body { display: flex; align-items: center; justify-content: center; }
+  #c { display: block; touch-action: none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script src="../../js/engine-common.js"></script>
+<script>
+/* ============================================================================
+ * Word Wheel engine — a spinning prize wheel that picks the question
+ * ----------------------------------------------------------------------------
+ * Every word of the topic is a segment on the wheel. Tap / press Space to spin
+ * it; when it stops, whatever word sits under the pointer is asked (the host
+ * shows the usual Turkish -> English question panel). Answer it correctly and
+ * that segment is retired (greyed with the word still legible); answer wrong and
+ * it costs a life and stays on the wheel. Clear every segment to WIN.
+ *
+ * Contract with the host (see js/engine-common.js):
+ *   engine -> host : ready, ask {word, correct, options}, hud, event, result
+ *   host -> engine : answer {correct}, pause, resume, quit, start
+ * ========================================================================== */
+(function () {
+  "use strict";
+  const E = window.VocabEngine;
+
+  const launch = E.readLaunch() || { vocab: [], fromLang: "Word", toLang: "Meaning", accent: "#f59f00" };
+  let VOCAB = E.shuffle(launch.vocab || []);
+  const FROM = launch.fromLang || "Word";
+  const TO = launch.toLang || "Meaning";
+  const ACCENT = launch.accent || "#f59f00";
+
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+  const W = 800, H = 600;
+  // crisp at any screen size and never stretched (see E.fitCanvas)
+  function resize() { E.fitCanvas(canvas, ctx, W, H); }
+  window.addEventListener("resize", resize); resize();
+
+  const Sfx = E.sfx({ enabled: launch.sound !== false });
+
+  // ---- wheel geometry ----
+  const CX = 400, CY = 330, R = 212, HUB = 50;
+  const TAU = Math.PI * 2;
+  const SPIN_DUR = 3.0;      // seconds of wheel travel
+  const REVEAL = 0.8;        // beat between the answer and the next spin
+
+  // ---- state ----
+  let state = "menu";        // menu | ready | spinning | asking | reveal | over
+  let paused = false, lastWin = false;
+  let N = 0, seg = TAU;
+  let done = [];             // one flag per VOCAB entry
+  let target = -1;           // index the wheel is heading for
+  let rot = 0, rotFrom = 0, rotTo = 0, spinT = 0, lastSeg = -1;
+  let score = 0, lives = 3, correct = 0, wrong = 0, combo = 0, bestCombo = 0;
+  let highscore = 0;
+  let cur = null, revealT = 0, revealOk = false, revealText = "";
+  let flashA = 0, flashColor = "#22c55e";
+  let particles = [], bgTime = 0, pulse = 0;
+
+  const HS_KEY = "vocabarcade.wheel.highscore";
+  try { highscore = parseInt(localStorage.getItem(HS_KEY) || "0", 10) || 0; } catch (e) {}
+  function saveHighscore(v) { try { localStorage.setItem(HS_KEY, String(v)); } catch (e) {} }
+
+  // ---- sky (seeded, so it does not flicker between runs) ----
+  const stars = [];
+  (function () {
+    let s = 987654321;
+    const rnd = function () { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
+    for (let i = 0; i < 110; i++) stars.push({ x: rnd() * W, y: rnd() * H, r: 0.5 + rnd() * 1.4, a: 0.2 + rnd() * 0.55 });
+  })();
+  const haze = [
+    { x: 130, y: 110, r: 280, c: "rgba(245,159,0,0.11)" },
+    { x: 690, y: 480, r: 320, c: "rgba(112,72,232,0.11)" },
+  ];
+
+  // ---- flow ----
+  // the result screen must sit for a moment before it can be tapped away
+  const OverLock = E.overGuard(2000);
+  function startGame() {
+    if (OverLock.live()) return;
+    VOCAB = E.shuffle(launch.vocab || []);   // fresh random order on every run / restart
+    N = VOCAB.length;
+    seg = N ? TAU / N : TAU;
+    done = [];
+    for (let i = 0; i < N; i++) done.push(false);
+    target = -1; lastSeg = -1;
+    score = 0; lives = 3; correct = 0; wrong = 0; combo = 0; bestCombo = 0;
+    rot = 0; rotFrom = 0; rotTo = 0; spinT = 0;
+    revealT = 0; cur = null; particles = []; flashA = 0;
+    if (N === 0) { gameOver(false); return; }   // nothing to spin for
+    state = "ready";
+    emitHud();
+  }
+
+  function remainingIdx() {
+    const a = [];
+    for (let i = 0; i < N; i++) if (!done[i]) a.push(i);
+    return a;
+  }
+  function remainingCount() { return remainingIdx().length; }
+
+  // start the wheel: pick a word that is still open and aim the pointer at it
+  function startSpin() {
+    if (state !== "ready") return;
+    const pool = remainingIdx();
+    if (!pool.length) return;
+    const idx = pool[Math.floor(Math.random() * pool.length)];
+    const want = idx * seg + seg / 2;                       // segment mid, in local angle
+    let to = -Math.PI / 2 - want + TAU * (3 + Math.floor(Math.random() * 3));
+    while (to < rot + TAU * 2) to += TAU;                   // always travel forward, several turns
+    rotFrom = rot; rotTo = to; spinT = 0;
+    target = idx; lastSeg = -1;
+    state = "spinning";
+    Sfx.flap();                                             // whoosh off
+    emitHud();
+  }
+
+  // which segment sits under the pointer right now (pointer = straight up)
+  function segmentAtPointer() {
+    if (!N) return -1;
+    let a = (-Math.PI / 2 - rot) % TAU;
+    if (a < 0) a += TAU;
+    return Math.min(N - 1, Math.floor(a / seg));
+  }
+
+  function onSpinEnd() {
+    rot = rotTo;
+    const entry = VOCAB[target] || {};
+    const o = E.buildOptions(entry);
+    cur = { word: entry.from, correct: o.correct, options: o.options };
+    state = "asking";
+    Sfx.edu();
+    E.send(E.MSG.ASK, { word: cur.word, correct: cur.correct, options: cur.options });
+    emitHud();
+  }
+
+  function onAnswer(ok) {
+    if (state !== "asking") return;          // stray answer (eg the host closed late)
+    const good = !!ok;
+    revealOk = good;
+    revealT = REVEAL;
+    revealText = cur ? cur.correct : "";
+    if (good) {
+      done[target] = true;
+      correct++;
+      score += 10 + combo * 3;
+      combo++;
+      if (combo > bestCombo) bestCombo = combo;
+      flash("#22c55e", 0.30);
+      burst(18, "#ffd43b");
+      E.send(E.MSG.EVENT, { name: "correct", combo: combo });
+    } else {
+      wrong++;
+      combo = 0;
+      lives--;
+      flash("#ef4444", 0.40);
+      burst(10, "#ef4444");
+      E.send(E.MSG.EVENT, { name: "wrong" });
+    }
+    state = "reveal";
+    emitHud();
+  }
+
+  function afterReveal() {
+    if (remainingCount() === 0) { gameOver(true); return; }
+    if (lives <= 0) { gameOver(false); return; }
+    state = "ready";
+    emitHud();
+  }
+
+  function gameOver(win) {
+    state = "over";
+    OverLock.arm();
+    lastWin = win;
+    if (score > highscore) { highscore = score; saveHighscore(highscore); }
+    E.send(E.MSG.EVENT, { name: win ? "win" : "lose" });
+    E.send(E.MSG.RESULT, { win: win, score: score, correct: correct, total: N });
+    emitHud();
+  }
+
+  function emitHud() {
+    E.send(E.MSG.HUD, { score: score, lives: Math.max(0, lives), correct: correct, combo: combo, level: 0 });
+  }
+
+  function flash(color, a) { flashColor = color; flashA = a; }
+  function burst(n, color) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * TAU, sp = 60 + Math.random() * 230;
+      particles.push({ x: CX, y: CY, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, r: 2 + Math.random() * 3, life: 0.6 + Math.random() * 0.6, color: color });
+    }
+  }
+
+  // ---- input: tap / Space spins, and starts or restarts from menu / over ----
+  window.addEventListener("pointerdown", function () {
+    if (state === "menu" || state === "over") { startGame(); return; }
+    if (state === "ready") startSpin();
+  });
+  window.addEventListener("keydown", function (e) {
+    const k = e.key.toLowerCase();
+    const fire = k === " " || k === "enter";
+    if (k.indexOf("arrow") === 0 || fire) e.preventDefault();
+    if (state === "menu" || state === "over") { if (fire) startGame(); return; }
+    if (state === "ready" && fire) startSpin();
+  });
+
+  E.listen(function (msg) {
+    if (msg.type === E.MSG.START) startGame();
+    else if (msg.type === E.MSG.ANSWER) onAnswer(msg.correct);
+    else if (msg.type === E.MSG.PAUSE) paused = true;
+    else if (msg.type === E.MSG.RESUME) paused = false;
+    else if (msg.type === E.MSG.QUIT) state = "menu";
+  });
+
+  // ---- update ----
+  function update(dt) {
+    bgTime += dt; pulse += dt;
+    if (flashA > 0) flashA = Math.max(0, flashA - dt * 1.7);
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 260 * dt; p.life -= dt;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+    if (paused) return;
+
+    if (state === "spinning") {
+      spinT += dt;
+      const p = spinT >= SPIN_DUR ? 1 : spinT / SPIN_DUR;
+      const e = 1 - Math.pow(1 - p, 3);                 // ease-out: fast, then settle
+      rot = rotFrom + (rotTo - rotFrom) * e;
+      const s = segmentAtPointer();
+      if (s !== lastSeg) { lastSeg = s; Sfx.blip(); }   // tick as segments pass the pointer
+      if (p >= 1) onSpinEnd();
+    } else if (state === "reveal") {
+      revealT -= dt;
+      if (revealT <= 0) afterReveal();
+    }
+  }
+
+  // ---- drawing ----
+  function text(str, x, y, size, color, align, weight) {
+    ctx.fillStyle = color; ctx.textAlign = align || "center"; ctx.textBaseline = "middle";
+    ctx.font = (weight || 700) + " " + size + "px system-ui,'Segoe UI',Arial,sans-serif";
+    ctx.fillText(str, x, y);
+  }
+  function rrect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y); ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.lineTo(x + w, y + h - r); ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.lineTo(x + r, y + h); ctx.arcTo(x, y + h, x, y + h - r, r);
+    ctx.lineTo(x, y + r); ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+  }
+
+  function drawBackground() {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, "#0a0e22"); g.addColorStop(1, "#05060f");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    // soft nebula (radial gradients only — a flat disc leaves a visible edge)
+    for (let i = 0; i < haze.length; i++) {
+      const h = haze[i];
+      const rg = ctx.createRadialGradient(h.x, h.y, 0, h.x, h.y, h.r);
+      rg.addColorStop(0, h.c); rg.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = rg; ctx.beginPath(); ctx.arc(h.x, h.y, h.r, 0, TAU); ctx.fill();
+    }
+    for (let i = 0; i < stars.length; i++) {
+      const s = stars[i];
+      ctx.globalAlpha = s.a * (0.6 + 0.4 * Math.sin(bgTime * 1.6 + i));
+      ctx.fillStyle = "#cdd8ff";
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, TAU); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawLabel(str, mid, isDone) {
+    const maxW = R - HUB - 24;
+    let size = 17;
+    ctx.font = "700 17px system-ui,'Segoe UI',Arial,sans-serif";
+    while (size > 9 && ctx.measureText(str).width > maxW) {
+      size -= 1;
+      ctx.font = "700 " + size + "px system-ui,'Segoe UI',Arial,sans-serif";
+    }
+    // keep the label the right way up: on the left half the whole segment is flipped
+    const flip = Math.cos(mid) < 0;
+    ctx.save();
+    ctx.translate(CX, CY);
+    ctx.rotate(flip ? mid + Math.PI : mid);
+    ctx.textBaseline = "middle";
+    ctx.textAlign = flip ? "left" : "right";
+    ctx.fillStyle = isDone ? "rgba(150,160,195,0.6)" : "#f6f8ff";
+    ctx.font = "700 " + size + "px system-ui,'Segoe UI',Arial,sans-serif";
+    ctx.fillText(str, flip ? -(R - 18) : (R - 18), 0);
+    ctx.restore();
+  }
+
+  function drawWheel() {
+    // segments (a distinct hue per word, alternating brightness for extra separation)
+    for (let i = 0; i < N; i++) {
+      const a0 = rot + i * seg, a1 = a0 + seg;
+      ctx.beginPath(); ctx.moveTo(CX, CY); ctx.arc(CX, CY, R, a0, a1); ctx.closePath();
+      ctx.fillStyle = done[i]
+        ? "hsl(220,12%,25%)"
+        : "hsl(" + Math.round((i * 360 / N + 190) % 360) + ",56%," + (i % 2 ? 45 : 35) + "%)";
+      ctx.fill();
+      ctx.strokeStyle = "rgba(6,8,20,0.55)"; ctx.lineWidth = 2; ctx.stroke();
+    }
+    // the word on every segment
+    for (let i = 0; i < N; i++) {
+      const entry = VOCAB[i] || {};
+      drawLabel(String(entry.from == null ? "" : entry.from), rot + i * seg + seg / 2, done[i]);
+    }
+    // rim + bulbs
+    ctx.beginPath(); ctx.arc(CX, CY, R + 7, 0, TAU);
+    ctx.lineWidth = 12; ctx.strokeStyle = "rgba(18,22,42,0.96)"; ctx.stroke();
+    ctx.beginPath(); ctx.arc(CX, CY, R + 7, 0, TAU);
+    ctx.lineWidth = 3; ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.stroke();
+    for (let i = 0; i < 16; i++) {
+      const a = i / 16 * TAU;
+      const bx = CX + Math.cos(a) * (R + 7), by = CY + Math.sin(a) * (R + 7);
+      ctx.beginPath(); ctx.arc(bx, by, 2.6, 0, TAU);
+      ctx.fillStyle = (state === "spinning" && i % 2 === Math.floor(bgTime * 6) % 2) ? "#fff3bf" : "rgba(255,212,59,0.55)";
+      ctx.fill();
+    }
+    // pointer at the top: whatever segment sits under it is the one asked.
+    // Its tip stops just inside the rim so the slice's label stays readable.
+    const tipY = CY - (R - 6);
+    ctx.beginPath();
+    ctx.moveTo(CX, tipY); ctx.lineTo(CX - 17, tipY - 34); ctx.lineTo(CX + 17, tipY - 34);
+    ctx.closePath();
+    ctx.fillStyle = "#ffd43b"; ctx.fill();
+    ctx.lineWidth = 2.5; ctx.strokeStyle = "rgba(6,8,20,0.75)"; ctx.stroke();
+    // hub
+    const hg = ctx.createRadialGradient(CX - 14, CY - 16, 4, CX, CY, HUB);
+    hg.addColorStop(0, "#2b3358"); hg.addColorStop(1, "#111529");
+    ctx.beginPath(); ctx.arc(CX, CY, HUB, 0, TAU);
+    ctx.fillStyle = hg; ctx.fill();
+    ctx.lineWidth = 3; ctx.strokeStyle = "rgba(255,255,255,0.18)"; ctx.stroke();
+
+    if (state === "ready") {
+      const pu = 0.5 + 0.5 * Math.sin(pulse * 3.4);
+      text("SPIN", CX, CY + 1, 19, "rgba(255,212,59," + (0.6 + 0.4 * pu).toFixed(2) + ")", "center", 800);
+    } else if (state === "spinning") {
+      text("🎡", CX, CY + 1, 24, "#eef2ff", "center", 400);
+    } else {
+      text("🎡", CX, CY + 1, 24, "#eef2ff", "center", 400);
+    }
+  }
+
+  function drawHeader() {
+    text("🎡 WORD WHEEL", 26, 32, 18, "#eef2ff", "left", 800);
+    text(N - remainingCount() + " / " + N + " words solved", 26, 58, 14, "#97a3c4", "left", 600);
+    let hearts = "";
+    for (let i = 0; i < Math.max(0, lives); i++) hearts += "❤ ";
+    text(hearts || "—", W - 26, 32, 18, "#ff6b6b", "right", 700);
+    text(FROM + " → " + TO, W - 26, 58, 14, "#97a3c4", "right", 600);
+  }
+
+  function drawPanel(title, lines, hint) {
+    ctx.globalAlpha = 0.82; ctx.fillStyle = "#05060f"; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
+    const pw = 560, ph = 118 + lines.length * 26 + 46, px = (W - pw) / 2, py = (H - ph) / 2;
+    rrect(px, py, pw, ph, 18);
+    ctx.fillStyle = "rgba(20,24,46,0.94)"; ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.14)"; ctx.lineWidth = 2; ctx.stroke();
+    let y = py + 52;
+    text(title, W / 2, y, 30, ACCENT, "center", 800);
+    y += 46;
+    for (let i = 0; i < lines.length; i++) { text(lines[i], W / 2, y, 16, "#b9c4e2", "center", 500); y += 26; }
+    text(hint, W / 2, py + ph - 32, 17, "#ffd43b", "center", 700);
+  }
+
+  function draw() {
+    drawBackground();
+    drawWheel();
+    drawHeader();
+
+    if (state === "menu") {
+      drawPanel("WORD WHEEL",
+        ["Every word of this topic is a slice of the wheel.",
+         "Spin it — then answer the question it lands on.",
+         "Clear all " + N + " words to win · you have 3 lives."],
+        "Tap the screen (or press Space) to spin");
+    } else if (state === "over") {
+      drawPanel(lastWin ? "🏆 WHEEL CLEARED!" : "💀 GAME OVER",
+        ["Score " + score + "  ·  " + correct + " / " + N + " words solved",
+         "Best streak ×" + bestCombo + "  ·  high score " + highscore,
+         lastWin ? "Every word on the wheel answered." : "You ran out of lives — the rest stayed on the wheel."],
+        "Tap the screen to spin again");
+    } else if (state === "reveal") {
+      const col = revealOk ? "#22c55e" : "#ef4444";
+      text(revealOk ? "✓" : "✗", W / 2, 196, 70, col, "center", 800);
+      text(revealOk ? "Correct!" : "Wrong — it was:", W / 2, 256, 22, col, "center", 700);
+      text("→ " + revealText, W / 2, 292, 30, "#ffd43b", "center", 800);
+    } else if (state === "ready") {
+      text("Tap the screen (or press Space) to spin", W / 2, H - 26, 16, "#9aa8c9", "center", 600);
+    } else if (state === "asking") {
+      text("ANSWER THE PANEL ABOVE ↑", W / 2, H - 26, 16, ACCENT, "center", 700);
+    }
+
+    for (let i = 0; i < particles.length; i++) {
+      const p = particles[i];
+      ctx.globalAlpha = Math.max(0, Math.min(1, p.life * 1.6));
+      ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, TAU); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    if (flashA > 0) {
+      ctx.globalAlpha = flashA * 0.5; ctx.fillStyle = flashColor;
+      ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
+    }
+  }
+
+  // ---- frame loop ----
+  let last = performance.now();
+  function frame(now) {
+    let dt = (now - last) / 1000; last = now;
+    if (dt > 0.05) dt = 0.05;
+    update(dt); draw();
+    requestAnimationFrame(frame);
+  }
+  E.send(E.MSG.READY);
+  requestAnimationFrame(frame);
+
+  // ── test seam (used only by test_wheel.js; inert in normal play) ──
+  if (window.__WHEEL_TEST__) {
+    window.__wheel = {
+      getState: function () { return state; },
+      total: function () { return N; },
+      done: function () { return done.filter(Boolean).length; },
+      remaining: function () { return remainingCount(); },
+      target: function () { return target; },
+      targetWord: function () { return VOCAB[target] ? VOCAB[target].from : null; },
+      pointerWord: function () {
+        const i = segmentAtPointer();
+        return VOCAB[i] ? VOCAB[i].from : null;
+      },
+      isDone: function (i) { return !!done[i]; },
+      labels: function () { return VOCAB.map(function (e) { return e.from; }); },
+      vocabOrder: function () { return VOCAB.map(function (e) { return e.from; }); },
+      score: function () { return score; },
+      lives: function () { return lives; },
+      combo: function () { return combo; },
+      spin: function () { startSpin(); return state; },
+      tick: function (dt) { update(dt); },
+      answer: function (ok) { onAnswer(!!ok); return state; },
+      restart: function () { startGame(); },
+    };
+  }
+})();
+</script>
+</body>
+</html>

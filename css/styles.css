@@ -182,6 +182,12 @@ body[data-screen="player"] .topnav { display: none; }
 }
 .quiz__opt--right { background: rgba(34,197,94,0.22); border-color: var(--ok); }
 .quiz__opt--wrong { background: rgba(239,68,68,0.22); border-color: var(--bad); }
+/* the Turkish meaning that appears beside an option once the question is answered
+   (amber = "Turkish" everywhere in the app, same as the Word Wall) */
+.quiz__tr {
+  margin-left: 9px; flex: 0 0 auto; color: #ffd43b; font-weight: 700; font-size: 14px;
+  white-space: nowrap;
+}
 .quiz__result { text-align: center; margin-top: 14px; font-weight: 700; font-size: 17px; min-height: 22px; }
 .quiz__result--ok { color: var(--ok); }
 .quiz__result--bad { color: var(--bad); }

@@ -6,7 +6,7 @@
 const fs = require("fs");
 const vm = require("vm");
 
-const ENGINES = ["breakout", "invaders", "snake", "tetris", "asteroids", "flappy", "pacman", "defender"];
+const ENGINES = ["breakout", "invaders", "snake", "tetris", "asteroids", "flappy", "pacman", "defender", "raiders", "quiz", "wheel", "tug"];
 const N = 20;
 const WORDS = [];
 for (let i = 0; i < N; i++) WORDS.push({ from: "kelime" + (i + 1), correct: "w" + String.fromCharCode(97 + i) });
